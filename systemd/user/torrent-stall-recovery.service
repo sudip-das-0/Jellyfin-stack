@@ -5,4 +5,4 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=/home/devdas/arr/scripts/download-maintenance.sh
+ExecStart=/mnt/jellyfin/scripts/download-maintenance.sh

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Register all Sonarr/Radarr connections (import postprocess + Bazarr webhooks + OS API key).
-# See /home/devdas/arr/README.md
+# See /mnt/jellyfin/scripts/README.md
 set -euo pipefail
 DIR=$(dirname "$(readlink -f "$0")")
 

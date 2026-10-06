@@ -2,7 +2,7 @@
 # Always-on LG TV queue worker: drain back-to-back, then wait for new queue entries.
 set -euo pipefail
 # shellcheck source=stack-paths.sh
-source /home/devdas/arr/scripts/stack-paths.sh
+source /mnt/jellyfin/scripts/stack-paths.sh
 QUEUE=$LG_TV_QUEUE
 LOG=$LG_TV_LOG
 PROCESS="${SCRIPTS_ROOT}/lg-tv-process-queue.sh"

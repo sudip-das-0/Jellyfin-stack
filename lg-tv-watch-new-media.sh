@@ -4,7 +4,7 @@ set -euo pipefail
 MEDIA=/mnt/jellyfin/media
 QUEUE_HELPER=/mnt/jellyfin/scripts/lg-tv-queue-path.sh
 # shellcheck source=stack-paths.sh
-source /home/devdas/arr/scripts/stack-paths.sh
+source /mnt/jellyfin/scripts/stack-paths.sh
 BASELINE=$LG_TV_WATCHER_BASELINE
 POLL_SEC=45
 

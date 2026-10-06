@@ -106,7 +106,7 @@ trim_sqlite() {
 
 trim_lg_queue_state() {
   # shellcheck source=stack-paths.sh
-  source /home/devdas/arr/scripts/stack-paths.sh
+  source /mnt/jellyfin/scripts/stack-paths.sh
   local RETRIES=$LG_TV_RETRIES
   [[ -f "$RETRIES" ]] || return 0
   local tmp removed=0

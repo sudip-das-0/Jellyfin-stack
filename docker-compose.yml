@@ -1,5 +1,6 @@
 # Arr stack — Docker configs on internal SSD; all media on /mnt/jellyfin (2TB, ext4).
-# Operator docs: /home/devdas/arr/README.md
+# Git repo + operator docs: /mnt/jellyfin/scripts/README.md
+# Docker configs (not in git): /home/devdas/arr/config/
 # Backup copy: docs/jellyfin-docker-compose.yml.backup
 
 services:
@@ -46,7 +47,7 @@ services:
       - /home/devdas/arr/config/radarr:/config
       - /mnt/jellyfin/logs/radarr:/config/logs
       - /mnt/jellyfin:/data
-      - /home/devdas/arr/scripts/hooks:/data/scripts:ro
+      - /mnt/jellyfin/scripts/hooks:/data/scripts:ro
     ports:
       - "7878:7878"
     restart: unless-stopped
@@ -65,7 +66,7 @@ services:
       - /home/devdas/arr/config/sonarr:/config
       - /mnt/jellyfin/logs/sonarr:/config/logs
       - /mnt/jellyfin:/data
-      - /home/devdas/arr/scripts/hooks:/data/scripts:ro
+      - /mnt/jellyfin/scripts/hooks:/data/scripts:ro
     ports:
       - "8989:8989"
     restart: unless-stopped

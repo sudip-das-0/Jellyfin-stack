@@ -6,7 +6,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 Environment=LG_TV_MAX_HEIGHT=0
-ExecStart=/home/devdas/arr/scripts/lg-tv-optimize-daemon.sh
+ExecStart=/mnt/jellyfin/scripts/lg-tv-optimize-daemon.sh
 Restart=always
 RestartSec=15
 

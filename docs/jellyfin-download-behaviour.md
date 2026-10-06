@@ -43,7 +43,7 @@ Every **5 minutes**, `queue-dedupe.py` runs first:
 | Two+ queue rows for the same episode/movie | Keep the **best** torrent (progress → active state → download speed → seeders). Remove other queue rows and delete extra torrents in qBittorrent. |
 | Queue row but **no** torrent in qBittorrent for **≥ 6 hours** | Remove stale queue row (no auto-redownload). |
 
-**Manual run:** `/home/devdas/arr/scripts/queue-dedupe.py`  
+**Manual run:** `/mnt/jellyfin/scripts/queue-dedupe.py`  
 **Log prefix:** `[dedupe]` in `/mnt/jellyfin/logs/stall-recovery/recovery-YYYY-MM-DD.log`
 
 ---
@@ -162,7 +162,7 @@ Your global cap is **50 Mbps** in qBittorrent — that is the ceiling no matter 
 
 ```bash
 # Full maintenance (dedupe + stall rules)
-/home/devdas/arr/scripts/download-maintenance.sh
+/mnt/jellyfin/scripts/download-maintenance.sh
 
 # Watch behaviour logs
 tail -f /mnt/jellyfin/logs/stall-recovery/recovery-$(date +%F).log

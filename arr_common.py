@@ -12,9 +12,10 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 TZ = ZoneInfo("Asia/Kolkata")
-ARR_ROOT = Path("/home/devdas/arr")
-SCRIPTS_ROOT = ARR_ROOT / "scripts"
+CONFIG_ROOT = Path("/home/devdas/arr")
+SCRIPTS_ROOT = Path("/mnt/jellyfin/scripts")
 HOOKS_DIR = SCRIPTS_ROOT / "hooks"
+ARR_ROOT = CONFIG_ROOT  # *arr Docker config on SSD
 LOG_ROOT = Path("/mnt/jellyfin/logs")
 STALL_LOG_DIR = LOG_ROOT / "stall-recovery"
 LG_TV_DIR = LOG_ROOT / "lg-tv"

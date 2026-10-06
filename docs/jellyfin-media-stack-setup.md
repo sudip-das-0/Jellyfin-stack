@@ -48,7 +48,7 @@ agent "your prompt here"
 | **Bazarr** | Subtitles |
 | **TLP** | Lenovo battery conservation mode (~80% cap; not exact 60%) |
 
-Compose file: **`/home/devdas/arr/docker-compose.yml`**
+Compose file: **`/mnt/jellyfin/scripts/docker-compose.yml`**
 
 Seerr config (same path as before): **`/home/devdas/arr/config/jellyseerr/`** (folder name unchanged; app title in UI may still say “Jellyseerr”).
 
@@ -142,7 +142,7 @@ jellyfin help
 ## Docker Compose (manual)
 
 ```bash
-cd /home/devdas/arr
+cd /mnt/jellyfin/scripts
 
 docker compose up -d              # start all services
 docker compose stop               # stop all
@@ -218,7 +218,7 @@ Sonarr/Radarr pick the best release by quality profile; when scores tie, the rel
 | `/mnt/jellyfin/logs/radarr/` | Radarr service logs |
 | `/mnt/jellyfin/logs/qbittorrent/` | qBittorrent file log |
 
-Manual snapshot: `/home/devdas/arr/scripts/download-activity-log.sh`  
+Manual snapshot: `/mnt/jellyfin/scripts/download-activity-log.sh`  
 Timer: `systemctl --user status download-activity-log.timer`
 
 ### Download maintenance (dedupe + stall recovery)
@@ -241,9 +241,9 @@ Every **5 minutes**, `download-maintenance.sh` runs **in order** (LG TV queue is
 
 | Item | Path |
 |------|------|
-| Wrapper | `/home/devdas/arr/scripts/download-maintenance.sh` |
-| Dedupe | `/home/devdas/arr/scripts/queue-dedupe.py` |
-| Stall recovery | `/home/devdas/arr/scripts/torrent-stall-recovery.py` |
+| Wrapper | `/mnt/jellyfin/scripts/download-maintenance.sh` |
+| Dedupe | `/mnt/jellyfin/scripts/queue-dedupe.py` |
+| Stall recovery | `/mnt/jellyfin/scripts/torrent-stall-recovery.py` |
 | State | `/mnt/jellyfin/logs/stall-recovery/state.json` |
 | Log | `/mnt/jellyfin/logs/stall-recovery/recovery-YYYY-MM-DD.log` |
 | Timer | `systemctl --user status torrent-stall-recovery.timer` |
@@ -254,8 +254,8 @@ Override stall window: `STALL_SECONDS=3600` in the systemd service environment i
 
 | Item | Path |
 |------|------|
-| **Live** (used by `jellyfin start`) | `/home/devdas/arr/docker-compose.yml` |
-| **Backup compose** | `/home/devdas/arr/docs/jellyfin-docker-compose.yml.backup` |
+| **Live** (used by `jellyfin start`) | `/mnt/jellyfin/scripts/docker-compose.yml` |
+| **Backup compose** | `/mnt/jellyfin/scripts/docs/jellyfin-docker-compose.yml.backup` |
 
 ### Check if something is downloading
 
@@ -324,9 +324,9 @@ After editing `encoding.xml`, restart Jellyfin: **`jellyfin restart`** (restarts
 
 ## Bazarr / subtitles (free-only online)
 
-**No paid APIs.** Bazarr providers: **NapiProjekt**, **subf2m**, **Animetosho**, **OpenSubtitles.com** (API key in `config.yaml`; also set **username + password** from the same OpenSubtitles account in Bazarr → Settings → Providers). After a Bazarr container recreate, run `/home/devdas/arr/scripts/bazarr-apply-opensubtitles-apikey.sh` or restart Bazarr (uses `custom-cont-init.d`). On import, `import-sidecar-subs.sh` copies torrent `Subs/`; LG optimize saves embedded subs to `.eng.srt` before remux.
+**No paid APIs.** Bazarr providers: **NapiProjekt**, **subf2m**, **Animetosho**, **OpenSubtitles.com** (API key in `config.yaml`; also set **username + password** from the same OpenSubtitles account in Bazarr → Settings → Providers). After a Bazarr container recreate, run `/mnt/jellyfin/scripts/bazarr-apply-opensubtitles-apikey.sh` or restart Bazarr (uses `custom-cont-init.d`). On import, `import-sidecar-subs.sh` copies torrent `Subs/`; LG optimize saves embedded subs to `.eng.srt` before remux.
 
-Language profile: **English** (default for all series/movies). Re-register hooks: `/home/devdas/arr/scripts/register-stack-hooks.sh`
+Language profile: **English** (default for all series/movies). Re-register hooks: `/mnt/jellyfin/scripts/register-stack-hooks.sh`
 
 ---
 
@@ -408,12 +408,12 @@ curl -s -u Dimpu:adminadmin http://127.0.0.1:8080/api/v2/torrents/info | python3
 
 | Item | Path |
 |------|------|
-| Compose (live) | `/home/devdas/arr/docker-compose.yml` |
-| Compose backup | `/home/devdas/arr/docs/jellyfin-docker-compose.yml.backup` |
+| Compose (live) | `/mnt/jellyfin/scripts/docker-compose.yml` |
+| Compose backup | `/mnt/jellyfin/scripts/docs/jellyfin-docker-compose.yml.backup` |
 | *arr configs | `/home/devdas/arr/config/` |
 | Seerr settings / DB | `/home/devdas/arr/config/jellyseerr/settings.json`, `.../db/db.sqlite3` |
 | Jellyfin config | `/mnt/jellyfin/jellyfin/config/` |
 | Jellyfin CLI | `~/.local/bin/jellyfin` |
 | Cursor Agent CLI | `~/.local/bin/agent` or `cursor-agent` |
-| This doc | `/home/devdas/arr/docs/jellyfin-media-stack-setup.md` |
-| Download behaviour rules | `/home/devdas/arr/docs/jellyfin-download-behaviour.md` |
+| This doc | `/mnt/jellyfin/scripts/docs/jellyfin-media-stack-setup.md` |
+| Download behaviour rules | `/mnt/jellyfin/scripts/docs/jellyfin-download-behaviour.md` |

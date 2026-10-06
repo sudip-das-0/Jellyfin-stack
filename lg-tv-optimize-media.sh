@@ -19,7 +19,7 @@ if [[ "$src" == *.lgstream.mkv ]]; then
 fi
 
 # shellcheck source=stack-paths.sh
-source /home/devdas/arr/scripts/stack-paths.sh
+source /mnt/jellyfin/scripts/stack-paths.sh
 LOG=$LG_TV_LOG
 mkdir -p "$(dirname "$LOG")"
 log() { echo "$(date -Iseconds) $*" | tee -a "$LOG"; }
@@ -89,8 +89,8 @@ fi
 rel="${src#/mnt/jellyfin/media/}"
 cin="/media/$rel"
 
-if [[ -f /home/devdas/arr/scripts/normalize-subtitle-sidecars.py ]]; then
-  /usr/bin/python3 /home/devdas/arr/scripts/normalize-subtitle-sidecars.py --video "$src" 2>/dev/null || true
+if [[ -f /mnt/jellyfin/scripts/normalize-subtitle-sidecars.py ]]; then
+  /usr/bin/python3 /mnt/jellyfin/scripts/normalize-subtitle-sidecars.py --video "$src" 2>/dev/null || true
 fi
 tmp_host="${src}.lgopt.tmp.mkv"
 tmp_name="$(basename "$src").lgopt.tmp.mkv"
@@ -118,7 +118,7 @@ audio_map_args() {
     -of csv=p=0 2>/dev/null | python3 -c "
 import importlib.util
 import sys
-spec = importlib.util.spec_from_file_location('mlp', '/home/devdas/arr/scripts/media-lang-policy.py')
+spec = importlib.util.spec_from_file_location('mlp', '/mnt/jellyfin/scripts/media-lang-policy.py')
 mlp = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mlp)
 rows = []
@@ -191,7 +191,7 @@ if [[ "$subs" != "0" ]]; then
       -select_streams s -show_entries stream=index:stream_tags=language:stream_tags=title \
       -of json 2>/dev/null | python3 -c "
 import importlib.util, json, sys
-spec = importlib.util.spec_from_file_location('mlp', '/home/devdas/arr/scripts/media-lang-policy.py')
+spec = importlib.util.spec_from_file_location('mlp', '/mnt/jellyfin/scripts/media-lang-policy.py')
 mlp = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mlp)
 data = json.load(sys.stdin)

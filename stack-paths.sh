@@ -2,8 +2,9 @@
 LOG_ROOT=/mnt/jellyfin/logs
 STALL_LOG_DIR="${LOG_ROOT}/stall-recovery"
 LG_TV_DIR="${LOG_ROOT}/lg-tv"
-SCRIPTS_ROOT=/home/devdas/arr/scripts
+SCRIPTS_ROOT=/mnt/jellyfin/scripts
 HOOKS_DIR="${SCRIPTS_ROOT}/hooks"
+CONFIG_ROOT=/home/devdas/arr
 LG_TV_QUEUE="${LG_TV_DIR}/optimize.queue"
 LG_TV_LOCK="${LG_TV_DIR}/optimize.lock"
 LG_TV_RETRIES="${LG_TV_DIR}/optimize.retries.tsv"

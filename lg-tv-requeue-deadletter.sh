@@ -2,7 +2,7 @@
 # Re-queue LG optimize paths that hit max retries (after encode fixes).
 set -euo pipefail
 # shellcheck source=stack-paths.sh
-source /home/devdas/arr/scripts/stack-paths.sh
+source /mnt/jellyfin/scripts/stack-paths.sh
 DEAD=$LG_TV_DEAD
 RETRIES=$LG_TV_RETRIES
 QUEUE_HELPER="${HOOKS_DIR}/lg-tv-queue-path.sh"

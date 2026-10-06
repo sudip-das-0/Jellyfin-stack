@@ -1,6 +1,6 @@
 # Media stack scripts (reference)
 
-Live scripts: `/home/devdas/arr/scripts/`; import hooks in `scripts/hooks/` (mounted in Sonarr/Radarr as `/data/scripts`). Logs: `/mnt/jellyfin/logs/` (not in git).
+Live scripts: `/mnt/jellyfin/scripts/`; import hooks in `scripts/hooks/` (mounted in Sonarr/Radarr as `/data/scripts`). Logs: `/mnt/jellyfin/logs/` (not in git).
 
 ## Scheduled
 

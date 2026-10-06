@@ -4,7 +4,7 @@ set -euo pipefail
 
 MIN_H="${LG_TV_QUEUE_MIN_HEIGHT:-2160}"
 # shellcheck source=stack-paths.sh
-source /home/devdas/arr/scripts/stack-paths.sh
+source /mnt/jellyfin/scripts/stack-paths.sh
 QUEUE=$LG_TV_QUEUE
 MEDIA_ROOT=/mnt/jellyfin/media
 

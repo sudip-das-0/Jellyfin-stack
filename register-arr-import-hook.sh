@@ -3,7 +3,7 @@
 set -euo pipefail
 
 # shellcheck source=stack-paths.sh
-source /home/devdas/arr/scripts/stack-paths.sh
+source /mnt/jellyfin/scripts/stack-paths.sh
 chmod +x "${HOOKS_DIR}/arr-import-postprocess.sh"
 chmod +x "${HOOKS_DIR}/import-sidecar-subs.sh"
 chmod +x "${HOOKS_DIR}/lg-tv-queue-path.sh"

@@ -1,5 +1,5 @@
 # Jellyfin + *arr media stack (canonical copy for backup/reference)
-# Live compose used by `jellyfin start`: /home/devdas/arr/docker-compose.yml
+# Live compose used by `jellyfin start`: /mnt/jellyfin/scripts/docker-compose.yml
 # Docs: docs/jellyfin-media-stack-setup.md
 
 services:

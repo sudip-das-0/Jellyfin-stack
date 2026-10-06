@@ -2,8 +2,8 @@
 # Apply media-lang-policy.py: English subtitles; audio langs eng/jpn/kor/hin/ben for grabs/remux.
 set -euo pipefail
 
-POLICY=/home/devdas/arr/scripts/media-lang-policy.py
-/usr/bin/python3 /home/devdas/arr/scripts/apply-tv-direct-play-formats.py
+POLICY=/mnt/jellyfin/scripts/media-lang-policy.py
+/usr/bin/python3 /mnt/jellyfin/scripts/apply-tv-direct-play-formats.py
 
 SON=$(grep -oP '(?<=<ApiKey>)[^<]+' /home/devdas/arr/config/sonarr/config.xml)
 RAD=$(grep -oP '(?<=<ApiKey>)[^<]+' /home/devdas/arr/config/radarr/config.xml)
@@ -146,6 +146,6 @@ curl -sS -X POST -H "X-Api-Key: $BAZ_KEY" "http://127.0.0.1:6767/api/system/task
 curl -sS -X POST -H "X-Api-Key: $BAZ_KEY" "http://127.0.0.1:6767/api/system/tasks?taskid=update_movies" -o /dev/null
 docker restart bazarr >/dev/null 2>&1 || true
 sleep 10
-/home/devdas/arr/scripts/bazarr-apply-opensubtitles-apikey.sh || true
+/mnt/jellyfin/scripts/bazarr-apply-opensubtitles-apikey.sh || true
 docker restart jellyfin >/dev/null 2>&1 || true
 echo "Media language policy applied."
