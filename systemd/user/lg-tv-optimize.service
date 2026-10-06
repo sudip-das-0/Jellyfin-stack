@@ -1,0 +1,14 @@
+[Unit]
+Description=LG TV optimize — continuous queue worker (one encode at a time)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=LG_TV_MAX_HEIGHT=0
+ExecStart=/home/devdas/arr/scripts/lg-tv-optimize-daemon.sh
+Restart=always
+RestartSec=15
+
+[Install]
+WantedBy=default.target

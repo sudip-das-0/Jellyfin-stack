@@ -1,0 +1,8 @@
+[Unit]
+Description=Append Jellyfin stack download activity to dated log on /mnt/jellyfin
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/home/devdas/arr/scripts/download-activity-log.sh

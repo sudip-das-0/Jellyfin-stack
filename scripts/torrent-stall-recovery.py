@@ -1,0 +1,623 @@
+#!/usr/bin/env python3
+"""
+Stall recovery for Sonarr/Radarr downloads in qBittorrent.
+
+Rules:
+  1. If a torrent has made no progress for STALL_SECONDS (default 1h), grab two alternates.
+  2. Among the two alternates, if exactly one is healthy (progressing), remove the other.
+  3. If both alternates stall for STALL_SECONDS, remove both and mark the item failed in *arr.
+"""
+from __future__ import annotations
+
+import json
+import os
+import re
+import sys
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+from datetime import datetime
+from pathlib import Path
+from zoneinfo import ZoneInfo
+
+TZ = ZoneInfo("Asia/Kolkata")
+STALL_SECONDS = int(os.environ.get("STALL_SECONDS", "3600"))
+LOG_DIR = Path("/mnt/jellyfin/logs/stall-recovery")
+STATE_PATH = LOG_DIR / "state.json"
+SONARR_CONFIG = Path("/home/devdas/arr/config/sonarr/config.xml")
+RADARR_CONFIG = Path("/home/devdas/arr/config/radarr/config.xml")
+QBIT_USER = os.environ.get("QBIT_USER", "Dimpu")
+QBIT_PASS = os.environ.get("QBIT_PASS", "adminadmin")
+SONARR_URL = "http://127.0.0.1:8989"
+RADARR_URL = "http://127.0.0.1:7878"
+QBIT_URL = "http://127.0.0.1:8080"
+
+
+def log(msg: str) -> None:
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    day = datetime.now(TZ).strftime("%Y-%m-%d")
+    line = f"{datetime.now(TZ).strftime('%Y-%m-%d %H:%M:%S %Z')} {msg}\n"
+    with (LOG_DIR / f"recovery-{day}.log").open("a", encoding="utf-8") as f:
+        f.write(line)
+    print(line, end="")
+
+
+def read_api_key(path: Path) -> str:
+    text = path.read_text(encoding="utf-8")
+    m = re.search(r"<ApiKey>([^<]+)</ApiKey>", text)
+    if not m:
+        raise RuntimeError(f"No ApiKey in {path}")
+    return m.group(1)
+
+
+def http_json(
+    url: str,
+    *,
+    method: str = "GET",
+    headers: dict | None = None,
+    data: bytes | None = None,
+    auth: tuple[str, str] | None = None,
+) -> object:
+    req = urllib.request.Request(url, data=data, method=method)
+    for k, v in (headers or {}).items():
+        req.add_header(k, v)
+    if auth:
+        import base64
+
+        token = base64.b64encode(f"{auth[0]}:{auth[1]}".encode()).decode()
+        req.add_header("Authorization", f"Basic {token}")
+    with urllib.request.urlopen(req, timeout=120) as resp:
+        raw = resp.read()
+        if not raw:
+            return None
+        return json.loads(raw.decode())
+
+
+def qbit_torrents() -> list[dict]:
+    data = http_json(
+        f"{QBIT_URL}/api/v2/torrents/info",
+        auth=(QBIT_USER, QBIT_PASS),
+    )
+    return data if isinstance(data, list) else []
+
+
+def qbit_delete(hashes: list[str], delete_files: bool = True) -> None:
+    if not hashes:
+        return
+    body = urllib.parse.urlencode(
+        {"hashes": "|".join(hashes), "deleteFiles": "true" if delete_files else "false"}
+    ).encode()
+    http_json(
+        f"{QBIT_URL}/api/v2/torrents/delete",
+        method="POST",
+        data=body,
+        auth=(QBIT_USER, QBIT_PASS),
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+    )
+
+
+def load_state() -> dict:
+    if STATE_PATH.exists():
+        return json.loads(STATE_PATH.read_text(encoding="utf-8"))
+    return {"jobs": {}}
+
+
+def save_state(state: dict) -> None:
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    STATE_PATH.write_text(json.dumps(state, indent=2), encoding="utf-8")
+
+
+def norm_hash(h: str) -> str:
+    return h.upper()
+
+
+def torrent_by_hash(torrents: list[dict]) -> dict[str, dict]:
+    return {norm_hash(t["hash"]): t for t in torrents}
+
+
+def progress_key(t: dict) -> tuple[float, int, int]:
+    return (round(t.get("progress", 0), 4), t.get("dlspeed", 0), t.get("upspeed", 0))
+
+
+def update_stall_tracking(track: dict, t: dict | None, now: float) -> bool:
+    """Update per-hash stall tracking. Returns True if stalled >= STALL_SECONDS."""
+    if t is None:
+        return track.get("stalled_for", 0) >= STALL_SECONDS
+
+    pk = progress_key(t)
+    last = track.get("last_progress_key")
+    if last != pk:
+        track["last_progress_key"] = pk
+        track["stalled_since"] = None
+        track["stalled_for"] = 0
+        return False
+
+    if track.get("stalled_since") is None:
+        # Honour time already spent stalled before this script started tracking.
+        if t.get("state") in ("stalledDL", "missingFiles", "error", "queuedDL") and t.get(
+            "progress", 0
+        ) < 0.01:
+            track["stalled_since"] = float(t.get("last_activity") or t.get("added_on") or now)
+        else:
+            track["stalled_since"] = now
+    stalled_for = now - track["stalled_since"]
+    track["stalled_for"] = stalled_for
+    return stalled_for >= STALL_SECONDS
+
+
+def is_healthy(track: dict, t: dict | None, now: float) -> bool:
+    if t is None:
+        return False
+    if t.get("progress", 0) >= 1.0:
+        return True
+    update_stall_tracking(track, t, now)
+    return track.get("stalled_for", 0) < STALL_SECONDS and (
+        t.get("dlspeed", 0) > 0 or t.get("state") in ("downloading", "metaDL", "forcedDL")
+    )
+
+
+def sonarr_queue(api_key: str) -> list[dict]:
+    records: list[dict] = []
+    page = 1
+    while True:
+        url = f"{SONARR_URL}/api/v3/queue?page={page}&pageSize=100&includeUnknownMovieItems=false"
+        data = http_json(url, headers={"X-Api-Key": api_key})
+        if not isinstance(data, dict):
+            break
+        batch = data.get("records") or []
+        records.extend(batch)
+        if page * data.get("pageSize", 100) >= data.get("totalRecords", 0):
+            break
+        page += 1
+    return records
+
+
+def radarr_queue(api_key: str) -> list[dict]:
+    records: list[dict] = []
+    page = 1
+    while True:
+        url = f"{RADARR_URL}/api/v3/queue?page={page}&pageSize=100"
+        data = http_json(url, headers={"X-Api-Key": api_key})
+        if not isinstance(data, dict):
+            break
+        batch = data.get("records") or []
+        records.extend(batch)
+        if page * data.get("pageSize", 100) >= data.get("totalRecords", 0):
+            break
+        page += 1
+    return records
+
+
+def sonarr_grab_release(api_key: str, release: dict, episode_id: int) -> None:
+    payload = dict(release)
+    payload["episodeIds"] = [episode_id]
+    body = json.dumps(payload).encode()
+    http_json(
+        f"{SONARR_URL}/api/v3/release",
+        method="POST",
+        data=body,
+        headers={"X-Api-Key": api_key, "Content-Type": "application/json"},
+    )
+
+
+def radarr_grab_release(api_key: str, release: dict, movie_id: int) -> None:
+    payload = dict(release)
+    payload["movieIds"] = [movie_id]
+    body = json.dumps(payload).encode()
+    http_json(
+        f"{RADARR_URL}/api/v3/release",
+        method="POST",
+        data=body,
+        headers={"X-Api-Key": api_key, "Content-Type": "application/json"},
+    )
+
+
+def sonarr_fail_queue_items(api_key: str, queue_ids: list[int]) -> None:
+    for qid in queue_ids:
+        qs = urllib.parse.urlencode(
+            {
+                "removeFromClient": "true",
+                "blocklist": "true",
+                "skipRedownload": "true",
+            }
+        )
+        try:
+            http_json(
+                f"{SONARR_URL}/api/v3/queue/{qid}?{qs}",
+                method="DELETE",
+                headers={"X-Api-Key": api_key},
+            )
+        except urllib.error.HTTPError as e:
+            log(f"Sonarr queue delete {qid}: HTTP {e.code}")
+
+
+def radarr_fail_queue_items(api_key: str, queue_ids: list[int]) -> None:
+    for qid in queue_ids:
+        qs = urllib.parse.urlencode(
+            {
+                "removeFromClient": "true",
+                "blocklist": "true",
+                "skipRedownload": "true",
+            }
+        )
+        try:
+            http_json(
+                f"{RADARR_URL}/api/v3/queue/{qid}?{qs}",
+                method="DELETE",
+                headers={"X-Api-Key": api_key},
+            )
+        except urllib.error.HTTPError as e:
+            log(f"Radarr queue delete {qid}: HTTP {e.code}")
+
+
+def pick_alternate_releases(
+    releases: list[dict], tried_guids: set[str], exclude_hashes: set[str], count: int = 2
+) -> list[dict]:
+    eligible = []
+    for r in releases:
+        guid = r.get("guid") or ""
+        if guid in tried_guids:
+            continue
+        if r.get("rejected"):
+            continue
+        eligible.append(r)
+    eligible.sort(key=lambda x: (-(x.get("seeders") or 0), -(x.get("size") or 0)))
+    return eligible[:count]
+
+
+def reset_failed_if_new_grab(
+    state: dict,
+    job_key: str,
+    job: dict,
+    current_hashes: list[str],
+    label: str,
+    media_id: int,
+) -> dict:
+    if job.get("phase") != "failed":
+        return job
+    failed = {norm_hash(h) for h in (job.get("failed_hashes") or [])}
+    cur = {norm_hash(h) for h in current_hashes}
+    if cur and cur.isdisjoint(failed):
+        log(f"{label} {media_id}: new torrent after fail — resetting stall recovery")
+        state.setdefault("jobs", {}).pop(job_key, None)
+        return ensure_job_tracks(state, job_key, current_hashes)
+    return job
+
+
+def prune_stale_jobs(state: dict, active_keys: set[str]) -> None:
+    jobs = state.get("jobs") or {}
+    for key in list(jobs.keys()):
+        if key in active_keys:
+            continue
+        if jobs[key].get("phase") in ("done", "failed"):
+            jobs.pop(key, None)
+
+
+def active_queue_job_keys(sonarr_key: str, radarr_key: str) -> set[str]:
+    keys: set[str] = set()
+    for row in sonarr_queue(sonarr_key):
+        eid = row.get("episodeId")
+        if eid:
+            keys.add(f"sonarr:{eid}")
+    for row in radarr_queue(radarr_key):
+        mid = row.get("movieId")
+        if mid:
+            keys.add(f"radarr:{mid}")
+    return keys
+
+
+def ensure_job_tracks(state: dict, job_key: str, hashes: list[str]) -> dict:
+    jobs = state.setdefault("jobs", {})
+    job = jobs.setdefault(
+        job_key,
+        {
+            "phase": "primary",
+            "tried_guids": [],
+            "queue_ids": [],
+            "hashes": {},
+            "pending_alts": 0,
+        },
+    )
+    for h in hashes:
+        hn = norm_hash(h)
+        job["hashes"].setdefault(hn, {"role": "primary", "stalled_since": None, "stalled_for": 0})
+    return job
+
+
+def process_sonarr(
+    api_key: str, torrents: list[dict], tmap: dict[str, dict], state: dict, now: float
+) -> None:
+    by_episode: dict[int, list[dict]] = {}
+    for row in sonarr_queue(api_key):
+        eid = row.get("episodeId")
+        if not eid:
+            continue
+        by_episode.setdefault(eid, []).append(row)
+
+    for episode_id, rows in by_episode.items():
+        job_key = f"sonarr:{episode_id}"
+        hashes = [norm_hash(r["downloadId"]) for r in rows if r.get("downloadId")]
+        if not hashes:
+            continue
+        job = ensure_job_tracks(state, job_key, hashes)
+        job["queue_ids"] = sorted({r["id"] for r in rows})
+        tried = set(job.get("tried_guids") or [])
+
+        current_hashes = [norm_hash(r["downloadId"]) for r in rows if r.get("downloadId")]
+
+        for hn in list(job["hashes"].keys()):
+            track = job["hashes"][hn]
+            update_stall_tracking(track, tmap.get(hn), now)
+
+        job = reset_failed_if_new_grab(
+            state, job_key, job, current_hashes, "Sonarr episode", episode_id
+        )
+        if job.get("phase") == "failed":
+            continue
+
+        if job.get("phase") == "primary":
+            if len(current_hashes) > 1:
+                continue  # queue-dedupe.py must trim to one torrent first
+
+            primary_hashes = [h for h, tr in job["hashes"].items() if tr.get("role") == "primary"]
+            stalled_primaries = [
+                h for h in primary_hashes if job["hashes"][h].get("stalled_for", 0) >= STALL_SECONDS
+            ]
+            if not stalled_primaries or job.get("pending_alts"):
+                continue
+            if len(stalled_primaries) != 1:
+                continue
+
+            log(f"Sonarr episode {episode_id}: primary stalled ≥{STALL_SECONDS}s, fetching 2 alternates")
+            try:
+                releases = http_json(
+                    f"{SONARR_URL}/api/v3/release?episodeId={episode_id}",
+                    headers={"X-Api-Key": api_key},
+                )
+            except urllib.error.HTTPError as e:
+                log(f"Sonarr episode {episode_id}: release search failed HTTP {e.code}")
+                continue
+            if not isinstance(releases, list):
+                continue
+
+            exclude = set(hashes)
+            alts = pick_alternate_releases(releases, tried, exclude, 2)
+            if len(alts) < 1:
+                log(f"Sonarr episode {episode_id}: no alternate releases found")
+                sonarr_fail_queue_items(api_key, job["queue_ids"])
+                job["phase"] = "failed"
+                job["failed_hashes"] = list(current_hashes)
+                continue
+
+            for rel in alts:
+                tried.add(rel["guid"])
+                try:
+                    sonarr_grab_release(api_key, rel, episode_id)
+                    log(f"Sonarr episode {episode_id}: grabbed alt '{rel.get('title', '')[:80]}' seeders={rel.get('seeders')}")
+                except urllib.error.HTTPError as e:
+                    log(f"Sonarr episode {episode_id}: grab failed HTTP {e.code}")
+
+            job["tried_guids"] = list(tried)
+            job["pending_alts"] = len(alts)
+            job["phase"] = "alternates"
+            qbit_delete(stalled_primaries, delete_files=True)
+            for h in stalled_primaries:
+                job["hashes"].pop(h, None)
+            continue
+
+        if job.get("phase") == "alternates":
+            alt_hashes = [h for h, tr in job["hashes"].items() if tr.get("role") == "alternate"]
+            # Attach newly appeared torrents for this episode from queue
+            for hn in current_hashes:
+                if hn not in job["hashes"]:
+                    job["hashes"][hn] = {
+                        "role": "alternate",
+                        "stalled_since": None,
+                        "stalled_for": 0,
+                    }
+                    alt_hashes.append(hn)
+                elif job["hashes"][hn].get("role") == "primary":
+                    job["hashes"][hn]["role"] = "alternate"
+                    alt_hashes.append(hn)
+
+            if job.get("pending_alts") and len(alt_hashes) < job["pending_alts"]:
+                # Wait until qBittorrent picks up the new jobs
+                continue
+            job["pending_alts"] = 0
+
+            if len(alt_hashes) < 1:
+                continue
+            if len(current_hashes) > 2:
+                continue
+
+            tracks = {h: job["hashes"][h] for h in alt_hashes}
+            health = {h: is_healthy(tracks[h], tmap.get(h), now) for h in alt_hashes}
+            stalled_alts = [
+                h for h in alt_hashes if tracks[h].get("stalled_for", 0) >= STALL_SECONDS
+            ]
+
+            healthy = [h for h, ok in health.items() if ok]
+            if len(healthy) >= 1 and len(alt_hashes) >= 2:
+                keep = max(healthy, key=lambda h: tmap.get(h, {}).get("progress", 0))
+                remove = [h for h in current_hashes if h != keep]
+                log(
+                    f"Sonarr episode {episode_id}: keeping one healthy torrent, "
+                    f"removing {len(remove)} other torrent(s)"
+                )
+                qbit_delete(remove, delete_files=True)
+                job["hashes"] = {keep: job["hashes"].get(keep, {"role": "alternate"})}
+                job["phase"] = "done"
+                continue
+
+            if len(alt_hashes) >= 2 and len(stalled_alts) >= 2 and all(
+                tracks[h].get("stalled_for", 0) >= STALL_SECONDS for h in alt_hashes[:2]
+            ):
+                log(f"Sonarr episode {episode_id}: both alternates stalled ≥{STALL_SECONDS}s — marking failed")
+                qbit_delete(alt_hashes, delete_files=True)
+                sonarr_fail_queue_items(api_key, job["queue_ids"])
+                job["phase"] = "failed"
+                job["failed_hashes"] = list(current_hashes)
+                job["hashes"] = {}
+
+
+def process_radarr(
+    api_key: str, torrents: list[dict], tmap: dict[str, dict], state: dict, now: float
+) -> None:
+    by_movie: dict[int, list[dict]] = {}
+    for row in radarr_queue(api_key):
+        mid = row.get("movieId")
+        if not mid:
+            continue
+        by_movie.setdefault(mid, []).append(row)
+
+    for movie_id, rows in by_movie.items():
+        job_key = f"radarr:{movie_id}"
+        hashes = [norm_hash(r["downloadId"]) for r in rows if r.get("downloadId")]
+        if not hashes:
+            continue
+        job = ensure_job_tracks(state, job_key, hashes)
+        job["queue_ids"] = sorted({r["id"] for r in rows})
+        tried = set(job.get("tried_guids") or [])
+
+        current_hashes = [norm_hash(r["downloadId"]) for r in rows if r.get("downloadId")]
+
+        for hn in list(job["hashes"].keys()):
+            track = job["hashes"][hn]
+            update_stall_tracking(track, tmap.get(hn), now)
+
+        job = reset_failed_if_new_grab(
+            state, job_key, job, current_hashes, "Radarr movie", movie_id
+        )
+        if job.get("phase") == "failed":
+            continue
+
+        if job.get("phase") == "primary":
+            if len(current_hashes) > 1:
+                continue
+
+            primary_hashes = [h for h, tr in job["hashes"].items() if tr.get("role") == "primary"]
+            stalled_primaries = [
+                h for h in primary_hashes if job["hashes"][h].get("stalled_for", 0) >= STALL_SECONDS
+            ]
+            if not stalled_primaries or job.get("pending_alts"):
+                continue
+            if len(stalled_primaries) != 1:
+                continue
+
+            log(f"Radarr movie {movie_id}: primary stalled ≥{STALL_SECONDS}s, fetching 2 alternates")
+            try:
+                releases = http_json(
+                    f"{RADARR_URL}/api/v3/release?movieId={movie_id}",
+                    headers={"X-Api-Key": api_key},
+                )
+            except urllib.error.HTTPError as e:
+                log(f"Radarr movie {movie_id}: release search failed HTTP {e.code}")
+                continue
+            if not isinstance(releases, list):
+                continue
+
+            alts = pick_alternate_releases(releases, tried, set(hashes), 2)
+            if len(alts) < 1:
+                log(f"Radarr movie {movie_id}: no alternate releases found")
+                radarr_fail_queue_items(api_key, job["queue_ids"])
+                job["phase"] = "failed"
+                job["failed_hashes"] = list(current_hashes)
+                continue
+
+            for rel in alts:
+                tried.add(rel["guid"])
+                try:
+                    radarr_grab_release(api_key, rel, movie_id)
+                    log(f"Radarr movie {movie_id}: grabbed alt '{rel.get('title', '')[:80]}' seeders={rel.get('seeders')}")
+                except urllib.error.HTTPError as e:
+                    log(f"Radarr movie {movie_id}: grab failed HTTP {e.code}")
+
+            job["tried_guids"] = list(tried)
+            job["pending_alts"] = len(alts)
+            job["phase"] = "alternates"
+            qbit_delete(stalled_primaries, delete_files=True)
+            for h in stalled_primaries:
+                job["hashes"].pop(h, None)
+            continue
+
+        if job.get("phase") == "alternates":
+            alt_hashes = [h for h, tr in job["hashes"].items() if tr.get("role") == "alternate"]
+            for hn in current_hashes:
+                if hn not in job["hashes"]:
+                    job["hashes"][hn] = {
+                        "role": "alternate",
+                        "stalled_since": None,
+                        "stalled_for": 0,
+                    }
+                    alt_hashes.append(hn)
+                elif job["hashes"][hn].get("role") == "primary":
+                    job["hashes"][hn]["role"] = "alternate"
+                    alt_hashes.append(hn)
+
+            if job.get("pending_alts") and len(alt_hashes) < job["pending_alts"]:
+                continue
+            job["pending_alts"] = 0
+
+            if len(alt_hashes) < 1:
+                continue
+            if len(current_hashes) > 2:
+                continue
+
+            tracks = {h: job["hashes"][h] for h in alt_hashes}
+            health = {h: is_healthy(tracks[h], tmap.get(h), now) for h in alt_hashes}
+            stalled_alts = [
+                h for h in alt_hashes if tracks[h].get("stalled_for", 0) >= STALL_SECONDS
+            ]
+
+            healthy = [h for h, ok in health.items() if ok]
+            if len(healthy) >= 1 and len(alt_hashes) >= 2:
+                keep = max(healthy, key=lambda h: tmap.get(h, {}).get("progress", 0))
+                remove = [h for h in current_hashes if h != keep]
+                log(
+                    f"Radarr movie {movie_id}: keeping one healthy torrent, "
+                    f"removing {len(remove)} other torrent(s)"
+                )
+                qbit_delete(remove, delete_files=True)
+                job["hashes"] = {keep: job["hashes"].get(keep, {"role": "alternate"})}
+                job["phase"] = "done"
+                continue
+
+            if len(alt_hashes) >= 2 and len(stalled_alts) >= 2 and all(
+                tracks[h].get("stalled_for", 0) >= STALL_SECONDS for h in alt_hashes[:2]
+            ):
+                log(f"Radarr movie {movie_id}: both alternates stalled ≥{STALL_SECONDS}s — marking failed")
+                qbit_delete(alt_hashes, delete_files=True)
+                radarr_fail_queue_items(api_key, job["queue_ids"])
+                job["phase"] = "failed"
+                job["failed_hashes"] = list(current_hashes)
+                job["hashes"] = {}
+
+
+def main() -> int:
+    try:
+        sonarr_key = read_api_key(SONARR_CONFIG)
+        radarr_key = read_api_key(RADARR_CONFIG)
+    except RuntimeError as e:
+        log(f"ERROR: {e}")
+        return 1
+
+    state = load_state()
+    now = time.time()
+    try:
+        torrents = qbit_torrents()
+    except urllib.error.URLError as e:
+        log(f"qBittorrent unavailable: {e}")
+        return 1
+
+    tmap = torrent_by_hash(torrents)
+    process_sonarr(sonarr_key, torrents, tmap, state, now)
+    process_radarr(radarr_key, torrents, tmap, state, now)
+    active = active_queue_job_keys(sonarr_key, radarr_key)
+    prune_stale_jobs(state, active)
+    save_state(state)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

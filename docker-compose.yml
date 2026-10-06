@@ -1,0 +1,126 @@
+# Arr stack — Docker configs on internal SSD; all media on /mnt/jellyfin (2TB, ext4).
+# Operator docs: /home/devdas/arr/README.md
+# Backup copy: docs/jellyfin-docker-compose.yml.backup
+
+services:
+  prowlarr:
+    image: lscr.io/linuxserver/prowlarr:latest
+    container_name: prowlarr
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: Asia/Kolkata
+    volumes:
+      - /home/devdas/arr/config/prowlarr:/config
+    ports:
+      - "9696:9696"
+    restart: unless-stopped
+
+  qbittorrent:
+    image: lscr.io/linuxserver/qbittorrent:latest
+    container_name: qbittorrent
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: Asia/Kolkata
+      WEBUI_PORT: "8080"
+      TORRENTING_PORT: "6881"
+    volumes:
+      - /home/devdas/arr/config/qbittorrent:/config
+      - /mnt/jellyfin/logs/qbittorrent:/config/qBittorrent/logs
+      - /mnt/jellyfin:/data
+    ports:
+      - "8080:8080"
+      - "6881:6881"
+      - "6881:6881/udp"
+    restart: unless-stopped
+
+  radarr:
+    image: lscr.io/linuxserver/radarr:latest
+    container_name: radarr
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: Asia/Kolkata
+    volumes:
+      - /home/devdas/arr/config/radarr:/config
+      - /mnt/jellyfin/logs/radarr:/config/logs
+      - /mnt/jellyfin:/data
+      - /home/devdas/arr/scripts/hooks:/data/scripts:ro
+    ports:
+      - "7878:7878"
+    restart: unless-stopped
+    depends_on:
+      - prowlarr
+      - qbittorrent
+
+  sonarr:
+    image: lscr.io/linuxserver/sonarr:latest
+    container_name: sonarr
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: Asia/Kolkata
+    volumes:
+      - /home/devdas/arr/config/sonarr:/config
+      - /mnt/jellyfin/logs/sonarr:/config/logs
+      - /mnt/jellyfin:/data
+      - /home/devdas/arr/scripts/hooks:/data/scripts:ro
+    ports:
+      - "8989:8989"
+    restart: unless-stopped
+    depends_on:
+      - prowlarr
+      - qbittorrent
+
+  bazarr:
+    image: lscr.io/linuxserver/bazarr:latest
+    container_name: bazarr
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: Asia/Kolkata
+    volumes:
+      - /home/devdas/arr/config/bazarr:/config
+      - /mnt/jellyfin/media:/data/media
+    ports:
+      - "6767:6767"
+    restart: unless-stopped
+    depends_on:
+      - radarr
+      - sonarr
+
+  jellyseerr:
+    # Seerr v3+ sends Jellyfin 12–compatible Authorization headers (Jellyfin 12.1 breaks 2.7.x)
+    image: seerr/seerr:v3.5.0
+    container_name: jellyseerr
+    environment:
+      TZ: Asia/Kolkata
+      LOG_LEVEL: info
+    volumes:
+      - /home/devdas/arr/config/jellyseerr:/app/config
+    ports:
+      - "5055:5055"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    dns:
+      - 1.1.1.1
+    restart: unless-stopped
+
+  jellyfin:
+    image: jellyfin/jellyfin:latest
+    container_name: jellyfin
+    user: "1000:1000"
+    network_mode: host
+    group_add:
+      - "44"   # video
+      - "990"  # render
+    devices:
+      - /dev/dri:/dev/dri
+    environment:
+      TZ: Asia/Kolkata
+    volumes:
+      - /mnt/jellyfin/jellyfin/config:/config
+      - /mnt/jellyfin/jellyfin/cache:/cache
+      - /mnt/jellyfin/media:/media
+    restart: unless-stopped

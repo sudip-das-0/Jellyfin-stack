@@ -1,0 +1,8 @@
+[Unit]
+Description=Sonarr/Radarr stalled torrent recovery (2 alternates, fail if both stall)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/home/devdas/arr/scripts/download-maintenance.sh

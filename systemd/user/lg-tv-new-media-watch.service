@@ -1,0 +1,13 @@
+[Unit]
+Description=Queue LG TV optimize for newly imported media under /mnt/jellyfin/media
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/home/devdas/arr/scripts/lg-tv-watch-new-media.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
