@@ -1,0 +1,8 @@
+[Unit]
+Description=Apply qBittorrent limits for current Wi‑Fi SSID
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /mnt/jellyfin/scripts/apply-qbit-network-profile.py

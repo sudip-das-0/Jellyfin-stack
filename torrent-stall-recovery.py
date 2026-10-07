@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import sys
 import time
 import urllib.error
@@ -21,17 +20,25 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from arr_common import (
+    RADARR_CONFIG,
+    RADARR_URL,
+    SONARR_CONFIG,
+    SONARR_URL,
+    STALL_LOG_DIR,
+    norm_qbit_hash,
+    qbit_delete,
+    qbit_torrents,
+    read_api_key,
+)
+
 TZ = ZoneInfo("Asia/Kolkata")
 STALL_SECONDS = int(os.environ.get("STALL_SECONDS", "3600"))
-LOG_DIR = Path("/mnt/jellyfin/logs/stall-recovery")
+LOG_DIR = STALL_LOG_DIR
 STATE_PATH = LOG_DIR / "state.json"
-SONARR_CONFIG = Path("/home/devdas/arr/config/sonarr/config.xml")
-RADARR_CONFIG = Path("/home/devdas/arr/config/radarr/config.xml")
 QBIT_USER = os.environ.get("QBIT_USER", "Dimpu")
 QBIT_PASS = os.environ.get("QBIT_PASS", "adminadmin")
-SONARR_URL = "http://127.0.0.1:8989"
-RADARR_URL = "http://127.0.0.1:7878"
-QBIT_URL = "http://127.0.0.1:8080"
 
 
 def log(msg: str) -> None:
@@ -41,14 +48,6 @@ def log(msg: str) -> None:
     with (LOG_DIR / f"recovery-{day}.log").open("a", encoding="utf-8") as f:
         f.write(line)
     print(line, end="")
-
-
-def read_api_key(path: Path) -> str:
-    text = path.read_text(encoding="utf-8")
-    m = re.search(r"<ApiKey>([^<]+)</ApiKey>", text)
-    if not m:
-        raise RuntimeError(f"No ApiKey in {path}")
-    return m.group(1)
 
 
 def http_json(
@@ -74,29 +73,6 @@ def http_json(
         return json.loads(raw.decode())
 
 
-def qbit_torrents() -> list[dict]:
-    data = http_json(
-        f"{QBIT_URL}/api/v2/torrents/info",
-        auth=(QBIT_USER, QBIT_PASS),
-    )
-    return data if isinstance(data, list) else []
-
-
-def qbit_delete(hashes: list[str], delete_files: bool = True) -> None:
-    if not hashes:
-        return
-    body = urllib.parse.urlencode(
-        {"hashes": "|".join(hashes), "deleteFiles": "true" if delete_files else "false"}
-    ).encode()
-    http_json(
-        f"{QBIT_URL}/api/v2/torrents/delete",
-        method="POST",
-        data=body,
-        auth=(QBIT_USER, QBIT_PASS),
-        headers={"Content-Type": "application/x-www-form-urlencoded"},
-    )
-
-
 def load_state() -> dict:
     if STATE_PATH.exists():
         return json.loads(STATE_PATH.read_text(encoding="utf-8"))
@@ -108,12 +84,8 @@ def save_state(state: dict) -> None:
     STATE_PATH.write_text(json.dumps(state, indent=2), encoding="utf-8")
 
 
-def norm_hash(h: str) -> str:
-    return h.upper()
-
-
 def torrent_by_hash(torrents: list[dict]) -> dict[str, dict]:
-    return {norm_hash(t["hash"]): t for t in torrents}
+    return {norm_qbit_hash(t["hash"]): t for t in torrents}
 
 
 def progress_key(t: dict) -> tuple[float, int, int]:
@@ -276,8 +248,8 @@ def reset_failed_if_new_grab(
 ) -> dict:
     if job.get("phase") != "failed":
         return job
-    failed = {norm_hash(h) for h in (job.get("failed_hashes") or [])}
-    cur = {norm_hash(h) for h in current_hashes}
+    failed = {norm_qbit_hash(h) for h in (job.get("failed_hashes") or [])}
+    cur = {norm_qbit_hash(h) for h in current_hashes}
     if cur and cur.isdisjoint(failed):
         log(f"{label} {media_id}: new torrent after fail — resetting stall recovery")
         state.setdefault("jobs", {}).pop(job_key, None)
@@ -320,7 +292,7 @@ def ensure_job_tracks(state: dict, job_key: str, hashes: list[str]) -> dict:
         },
     )
     for h in hashes:
-        hn = norm_hash(h)
+        hn = norm_qbit_hash(h)
         job["hashes"].setdefault(hn, {"role": "primary", "stalled_since": None, "stalled_for": 0})
     return job
 
@@ -337,14 +309,14 @@ def process_sonarr(
 
     for episode_id, rows in by_episode.items():
         job_key = f"sonarr:{episode_id}"
-        hashes = [norm_hash(r["downloadId"]) for r in rows if r.get("downloadId")]
+        hashes = [norm_qbit_hash(r["downloadId"]) for r in rows if r.get("downloadId")]
         if not hashes:
             continue
         job = ensure_job_tracks(state, job_key, hashes)
         job["queue_ids"] = sorted({r["id"] for r in rows})
         tried = set(job.get("tried_guids") or [])
 
-        current_hashes = [norm_hash(r["downloadId"]) for r in rows if r.get("downloadId")]
+        current_hashes = [norm_qbit_hash(r["downloadId"]) for r in rows if r.get("downloadId")]
 
         for hn in list(job["hashes"].keys()):
             track = job["hashes"][hn]
@@ -473,14 +445,14 @@ def process_radarr(
 
     for movie_id, rows in by_movie.items():
         job_key = f"radarr:{movie_id}"
-        hashes = [norm_hash(r["downloadId"]) for r in rows if r.get("downloadId")]
+        hashes = [norm_qbit_hash(r["downloadId"]) for r in rows if r.get("downloadId")]
         if not hashes:
             continue
         job = ensure_job_tracks(state, job_key, hashes)
         job["queue_ids"] = sorted({r["id"] for r in rows})
         tried = set(job.get("tried_guids") or [])
 
-        current_hashes = [norm_hash(r["downloadId"]) for r in rows if r.get("downloadId")]
+        current_hashes = [norm_qbit_hash(r["downloadId"]) for r in rows if r.get("downloadId")]
 
         for hn in list(job["hashes"].keys()):
             track = job["hashes"][hn]

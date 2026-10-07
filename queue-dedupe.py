@@ -4,26 +4,31 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import sys
 import urllib.error
-import urllib.parse
-import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from arr_common import (
+    RADARR_CONFIG,
+    RADARR_URL,
+    SONARR_CONFIG,
+    SONARR_URL,
+    STALL_LOG_DIR,
+    arr_queue_remove,
+    fetch_arr_queue,
+    norm_qbit_hash,
+    qbit_delete,
+    qbit_torrents,
+    read_api_key,
+)
+
 TZ = ZoneInfo("Asia/Kolkata")
-LOG_DIR = Path("/mnt/jellyfin/logs/stall-recovery")
+LOG_DIR = STALL_LOG_DIR
 DEDUPE_VERBOSE = os.environ.get("DEDUPE_VERBOSE", "") == "1"
 STATE_PATH = LOG_DIR / "state.json"
-SONARR_CONFIG = Path("/home/devdas/arr/config/sonarr/config.xml")
-RADARR_CONFIG = Path("/home/devdas/arr/config/radarr/config.xml")
-QBIT_USER = "Dimpu"
-QBIT_PASS = "adminadmin"
-SONARR_URL = "http://127.0.0.1:8989"
-RADARR_URL = "http://127.0.0.1:7878"
-QBIT_URL = "http://127.0.0.1:8080"
 ORPHAN_QUEUE_HOURS = 6
 
 
@@ -37,75 +42,6 @@ def log(msg: str, *, detail: bool = False) -> None:
         f.write(line)
     if not detail or DEDUPE_VERBOSE:
         print(line, end="")
-
-
-def read_api_key(path: Path) -> str:
-    text = path.read_text(encoding="utf-8")
-    m = re.search(r"<ApiKey>([^<]+)</ApiKey>", text)
-    if not m:
-        raise RuntimeError(f"No ApiKey in {path}")
-    return m.group(1)
-
-
-def http_json(
-    url: str,
-    *,
-    method: str = "GET",
-    headers: dict | None = None,
-    data: bytes | None = None,
-    auth: tuple[str, str] | None = None,
-) -> object:
-    req = urllib.request.Request(url, data=data, method=method)
-    for k, v in (headers or {}).items():
-        req.add_header(k, v)
-    if auth:
-        import base64
-
-        token = base64.b64encode(f"{auth[0]}:{auth[1]}".encode()).decode()
-        req.add_header("Authorization", f"Basic {token}")
-    with urllib.request.urlopen(req, timeout=120) as resp:
-        raw = resp.read()
-        if not raw:
-            return None
-        return json.loads(raw.decode())
-
-
-def norm_hash(h: str) -> str:
-    return h.upper()
-
-
-def qbit_torrents() -> list[dict]:
-    data = http_json(f"{QBIT_URL}/api/v2/torrents/info", auth=(QBIT_USER, QBIT_PASS))
-    return data if isinstance(data, list) else []
-
-
-def qbit_delete(hashes: list[str]) -> None:
-    if not hashes:
-        return
-    body = urllib.parse.urlencode({"hashes": "|".join(hashes), "deleteFiles": "true"}).encode()
-    http_json(
-        f"{QBIT_URL}/api/v2/torrents/delete",
-        method="POST",
-        data=body,
-        auth=(QBIT_USER, QBIT_PASS),
-        headers={"Content-Type": "application/x-www-form-urlencoded"},
-    )
-
-
-def fetch_queue(base: str, api_key: str) -> list[dict]:
-    records: list[dict] = []
-    page = 1
-    while True:
-        url = f"{base}/api/v3/queue?page={page}&pageSize=100"
-        data = http_json(url, headers={"X-Api-Key": api_key})
-        if not isinstance(data, dict):
-            break
-        batch = data.get("records") or []
-        records.extend(batch)
-        if page * data.get("pageSize", 100) >= data.get("totalRecords", 0):
-            break
-        page += 1
-    return records
 
 
 def torrent_score(t: dict | None) -> tuple:
@@ -130,27 +66,6 @@ def parse_added(iso: str | None) -> datetime | None:
         return datetime.fromisoformat(iso)
     except ValueError:
         return None
-
-
-def remove_queue_item(base: str, api_key: str, queue_id: int) -> bool:
-    qs = urllib.parse.urlencode(
-        {
-            "removeFromClient": "true",
-            "blocklist": "false",
-            "skipRedownload": "true",
-        }
-    )
-    try:
-        http_json(
-            f"{base}/api/v3/queue/{queue_id}?{qs}",
-            method="DELETE",
-            headers={"X-Api-Key": api_key},
-        )
-        return True
-    except urllib.error.HTTPError as e:
-        if e.code == 404:
-            return False
-        raise
 
 
 def reset_stall_state(job_key: str, keep_hash: str | None) -> None:
@@ -194,36 +109,41 @@ def dedupe_group(
     scored: list[tuple[tuple, dict, str | None]] = []
     for row in rows:
         hid = row.get("downloadId")
-        hn = norm_hash(hid) if hid else None
+        hn = norm_qbit_hash(hid) if hid else None
         t = tmap.get(hn) if hn else None
         scored.append((torrent_score(t), row, hn))
 
     scored.sort(key=lambda x: x[0], reverse=True)
-    best_score, best_row, best_hash = scored[0]
+    _best_score, best_row, best_hash = scored[0]
 
     q_removed = 0
     t_removed = 0
     remove_hashes: list[str] = []
 
-    for score, row, hn in scored[1:]:
-        if remove_queue_item(base, api_key, row["id"]):
+    for _score, row, hn in scored[1:]:
+        if arr_queue_remove(base, api_key, row["id"]):
             q_removed += 1
-            log(f"{label} {media_id}: removed duplicate queue id={row['id']} ({row.get('title', '')[:60]})", detail=True)
+            log(
+                f"{label} {media_id}: removed duplicate queue id={row['id']} ({row.get('title', '')[:60]})",
+                detail=True,
+            )
         if hn and hn in tmap:
             remove_hashes.append(hn)
 
-    # Orphan queue row: no torrent in client for several hours
     if best_hash is None or best_hash not in tmap:
         added = parse_added(best_row.get("added"))
         if added and (now - added).total_seconds() >= ORPHAN_QUEUE_HOURS * 3600:
-            if remove_queue_item(base, api_key, best_row["id"]):
+            if arr_queue_remove(base, api_key, best_row["id"]):
                 q_removed += 1
-                log(f"{label} {media_id}: removed orphan queue (no qBit torrent ≥{ORPHAN_QUEUE_HOURS}h)", detail=True)
+                log(
+                    f"{label} {media_id}: removed orphan queue (no qBit torrent ≥{ORPHAN_QUEUE_HOURS}h)",
+                    detail=True,
+                )
             reset_stall_state(job_key, None)
             return q_removed, t_removed
 
     if remove_hashes:
-        qbit_delete(remove_hashes)
+        qbit_delete(remove_hashes, delete_files=True)
         t_removed = len(remove_hashes)
         log(f"{label} {media_id}: removed {t_removed} extra torrent(s) from qBittorrent", detail=True)
 
@@ -235,7 +155,7 @@ def dedupe_group(
 
 def dedupe_sonarr(api_key: str, tmap: dict[str, dict]) -> tuple[int, int]:
     by_ep: dict[int, list[dict]] = {}
-    for row in fetch_queue(SONARR_URL, api_key):
+    for row in fetch_arr_queue(SONARR_URL, api_key):
         eid = row.get("episodeId")
         if eid:
             by_ep.setdefault(eid, []).append(row)
@@ -258,7 +178,7 @@ def dedupe_sonarr(api_key: str, tmap: dict[str, dict]) -> tuple[int, int]:
 
 def dedupe_radarr(api_key: str, tmap: dict[str, dict]) -> tuple[int, int]:
     by_movie: dict[int, list[dict]] = {}
-    for row in fetch_queue(RADARR_URL, api_key):
+    for row in fetch_arr_queue(RADARR_URL, api_key):
         mid = row.get("movieId")
         if mid:
             by_movie.setdefault(mid, []).append(row)
@@ -288,7 +208,7 @@ def main() -> int:
         return 1
 
     try:
-        tmap = {norm_hash(t["hash"]): t for t in qbit_torrents()}
+        tmap = {norm_qbit_hash(t["hash"]): t for t in qbit_torrents()}
     except urllib.error.URLError as e:
         log(f"qBittorrent unavailable: {e}")
         return 1

@@ -34,10 +34,25 @@ Start: `systemctl --user start media-stack.service` or `cd /mnt/jellyfin/scripts
 | `lg-tv-optimize.service` | Continuous LG remux queue (`lg-tv-optimize-daemon.sh`, **no gap** between jobs) |
 | `lg-tv-new-media-watch.service` | Queue new imports for LG optimize |
 | `download-activity-log.timer` | Snapshot queues to `/mnt/jellyfin/logs/downloads/` |
+| `qbit-network-profile.timer` | Every 2 min → Wi‑Fi SSID → qBittorrent limits (`apply-qbit-network-profile.py`) |
+| `media-stack.service` | Boot → `docker compose up -d` |
 
 Wire hooks after changes: `./register-stack-hooks.sh`
 
-Verify: `./stack-verify.sh`
+Verify: `./stack-verify.sh` (checks `hooks/lg-tv-queue-path.sh`, `hooks/import-sidecar-subs.sh`, timers above)
+
+## Subtitles
+
+| Script | When |
+|--------|------|
+| `hooks/import-sidecar-subs.sh` | **On import** — episode-matched release `.srt` → `{video}.eng.srt` (canonical copy in `hooks/`) |
+| `repair-sidecars-from-torrents.py` | Fix missing/wrong `.eng.srt` from files still under `/mnt/jellyfin/torrents` |
+| `apply-media-language-policy.sh --full` | Library normalize + repair + Bazarr backfill + LG queue for missing subs |
+| `audit-subtitle-sidecars.py` / `sync-subtitle-sidecars.py` | Audit timing; alass sync for flagged items |
+
+Host helper (optional): `import-sidecar-from-release.py` + `sidecar_release.py` (same matching rules as the hook).
+
+Optional instant qBit profile on Wi‑Fi change: install `hooks/qbit-network-profile-dispatcher.sh` under NetworkManager (see comments in that file).
 
 ## Maintenance chain (`download-maintenance.sh`)
 
@@ -57,7 +72,7 @@ Shared Python: `arr_common.py` · Bash paths: `stack-paths.sh`
 
 ## LG TV direct-play pipeline
 
-Import (Sonarr/Radarr) → `hooks/arr-import-postprocess.sh` → sidecar subs → `logs/lg-tv/optimize.queue` → `lg-tv-optimize-media.sh` (H.264 + AAC stereo, external subs only; then removes the matching file under `/mnt/jellyfin/torrents`). Set `LG_TV_DELETE_TORRENT_ORIGINAL=0` to keep download copies.
+Import (Sonarr/Radarr) → `hooks/arr-import-postprocess.sh` → episode-matched sidecar subs → `logs/lg-tv/optimize.queue` → `lg-tv-optimize-media.sh` (H.264 + AAC stereo, external subs only; then removes the matching file under `/mnt/jellyfin/torrents`). Set `LG_TV_DELETE_TORRENT_ORIGINAL=0` to keep download copies.
 
 ## Logs (under `/mnt/jellyfin/logs/`)
 

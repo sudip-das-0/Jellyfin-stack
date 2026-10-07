@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib.util
 import sys
+from collections import defaultdict
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -29,7 +31,10 @@ def main() -> int:
 
     missing: list[str] = []
     flagged: list[tuple[str, str]] = []
+    dup_content: list[tuple[str, str]] = []
     ok = 0
+
+    season_srts: dict[Path, list[Path]] = defaultdict(list)
 
     for video in sync.iter_videos(root):
         rel = str(video.relative_to(root))
@@ -37,6 +42,7 @@ def main() -> int:
         if not sub.is_file():
             missing.append(rel)
             continue
+        season_srts[sub.parent].append(sub)
         try:
             text = sub.read_text(encoding="utf-8", errors="replace")
         except OSError:
@@ -56,13 +62,35 @@ def main() -> int:
         else:
             ok += 1
 
+    for season_dir, srts in season_srts.items():
+        by_hash: dict[str, list[Path]] = defaultdict(list)
+        for srt in srts:
+            digest = hashlib.sha256(srt.read_bytes()).hexdigest()
+            by_hash[digest].append(srt)
+        for paths in by_hash.values():
+            if len(paths) < 2:
+                continue
+            names = ", ".join(p.name for p in sorted(paths)[:4])
+            if len(paths) > 4:
+                names += f", +{len(paths) - 4} more"
+            try:
+                rel_season = season_dir.relative_to(root)
+            except ValueError:
+                rel_season = season_dir
+            dup_content.append((str(rel_season), names))
+
     total = ok + len(missing) + len(flagged)
-    print(f"audit-subtitle-sidecars: total_videos={total} ok={ok} missing={len(missing)} flagged={len(flagged)}")
+    print(
+        f"audit-subtitle-sidecars: total_videos={total} ok={ok} "
+        f"missing={len(missing)} flagged={len(flagged)} dup_season={len(dup_content)}"
+    )
     for rel in missing:
         print(f"MISSING\t{rel}")
     for rel, why in flagged:
         print(f"FLAG\t{rel}\t{why}")
-    return 1 if missing else 0
+    for rel, names in dup_content:
+        print(f"DUP\t{rel}\t{names}")
+    return 1 if missing or dup_content else 0
 
 
 if __name__ == "__main__":

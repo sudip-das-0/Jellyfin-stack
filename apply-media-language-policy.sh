@@ -23,6 +23,9 @@ apply_existing_library() {
   echo "Normalizing sidecars to one English file per video ({stem}.eng.srt)..."
   /usr/bin/python3 "$DIR/normalize-subtitle-sidecars.py"
 
+  echo "Repairing sidecars from torrent release folders (episode-matched)..."
+  /usr/bin/python3 "$DIR/repair-sidecars-from-torrents.py" || true
+
   echo "Auditing English sidecars (missing / suspicious timing)..."
   /usr/bin/python3 "$DIR/audit-subtitle-sidecars.py" || true
 

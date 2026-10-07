@@ -88,7 +88,7 @@ Runs immediately after dedupe in `download-maintenance.sh`.
 | Step | What runs |
 |------|-----------|
 | Request / grab | **HD-1080p** prefers **English** then **JA/KO/HI/BN** when present; blocks VOSTFR-only; **x264 + AAC** (`apply-english-audio-preference.sh`). |
-| Import | Sonarr/Radarr **CustomScript** → `arr-import-postprocess.sh` (sidecar subs, then LG queue) → `/mnt/jellyfin/logs/lg-tv-optimize.queue`. |
+| Import | Sonarr/Radarr **CustomScript** → `arr-import-postprocess.sh` (episode-matched sidecar subs, then LG queue) → `/mnt/jellyfin/logs/lg-tv/optimize.queue`. |
 | New files on disk | `lg-tv-new-media-watch.service` (inotify) queues paths not in baseline. |
 | Transcode | **`lg-tv-optimize.service`** runs continuously (daemon): drains queue **back-to-back** (no gap between files), then waits for new queue entries (inotify or ~10 s poll). One encode at a time. Logs **file size before/after**. |
 | Retries | Up to **3** failed attempts per file (`LG_TV_OPTIMIZE_MAX_RETRIES`); then **dead-letter** log, no re-queue. |
@@ -111,7 +111,7 @@ Runs immediately after dedupe in `download-maintenance.sh`.
 **Dead letter (failed 3×):** `/mnt/jellyfin/logs/lg-tv-optimize.deadletter.log`  
 **Retry counts:** `/mnt/jellyfin/logs/lg-tv-optimize.retries.tsv`
 
-**Subtitles (server default):** User **Dimpu** → subtitles **Always on** (English). Order: (1) copy `Subs/*.srt` from the torrent folder on import, (2) extract embedded subs to `.eng.srt` before LG TV remux, (3) **Bazarr** free providers (NapiProjekt, subf2m, Animetosho) via webhooks + 6 h wanted search. Jellyfin does **not** call OpenSubtitles (avoids account/rate limits); sidecar files next to the video are used.
+**Subtitles (server default):** User **Dimpu** → subtitles **Always on** (English). Order: (1) on import, copy the release `.srt` whose **SxxExx** matches the episode (Vyndros-style names OK), (2) extract embedded subs to `.eng.srt` before LG TV remux, (3) **Bazarr** + `repair-sidecars-from-torrents.py` for gaps/wrong duplicates. Jellyfin uses external `.eng.srt` only.
 
 **LG TV app:** Playback → maximum streaming bitrate **Maximum**; enable **Subtitles** (English) if the client does not pick up the server default.
 

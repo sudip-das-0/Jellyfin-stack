@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 import json
-import re
 import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
 
-SONARR_CONFIG = Path("/home/devdas/arr/config/sonarr/config.xml")
-RADARR_CONFIG = Path("/home/devdas/arr/config/radarr/config.xml")
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from arr_common import RADARR_CONFIG, RADARR_URL, SONARR_CONFIG, SONARR_URL, read_api_key
 PROFILE_NAME = "HD-1080p"
 
 SCORES = {
@@ -242,14 +241,6 @@ FORMATS = [
 ]
 
 
-def read_api_key(path: Path) -> str:
-    text = path.read_text(encoding="utf-8")
-    m = re.search(r"<ApiKey>([^<]+)</ApiKey>", text)
-    if not m:
-        raise RuntimeError(f"No ApiKey in {path}")
-    return m.group(1)
-
-
 def http_json(url: str, api_key: str, *, method: str = "GET", data: dict | None = None) -> object:
     body = json.dumps(data).encode() if data is not None else None
     req = urllib.request.Request(
@@ -304,12 +295,11 @@ def apply_profile(base_url: str, api_key: str, name_to_id: dict[str, int]) -> No
 
 
 def main() -> int:
-    for label, config, port in (
-        ("Sonarr", SONARR_CONFIG, 8989),
-        ("Radarr", RADARR_CONFIG, 7878),
+    for label, config, base in (
+        ("Sonarr", SONARR_CONFIG, SONARR_URL),
+        ("Radarr", RADARR_CONFIG, RADARR_URL),
     ):
         api_key = read_api_key(config)
-        base = f"http://127.0.0.1:{port}"
         try:
             name_to_id = ensure_formats(base, api_key)
             apply_profile(base, api_key, name_to_id)

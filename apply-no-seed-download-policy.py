@@ -9,10 +9,15 @@ import urllib.parse
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from arr_common import RADARR_CONFIG, SONARR_CONFIG, arr_json, qbit_json, read_api_key
-
-SONARR_URL = "http://127.0.0.1:8989"
-RADARR_URL = "http://127.0.0.1:7878"
+from arr_common import (
+    RADARR_CONFIG,
+    RADARR_URL,
+    SONARR_CONFIG,
+    SONARR_URL,
+    arr_json,
+    qbit_json,
+    read_api_key,
+)
 
 
 def patch_download_client(base_url: str, api_key: str, *, tv: bool) -> None:
@@ -43,8 +48,9 @@ def patch_qbit_no_seed() -> None:
     patch = {
         "max_ratio_enabled": True,
         "max_ratio": 0,
-        # 1 = remove torrent only (keep files — safe with hardlinked imports)
-        "max_ratio_act": 1,
+        # 0 = pause at ratio limit; Sonarr/Radarr remove the torrent after import.
+        # Do not use 1 (remove torrent) here — that drops the job before *arr can import.
+        "max_ratio_act": 0,
         "max_seeding_time_enabled": True,
         "max_seeding_time": 1,
         "max_inactive_seeding_time_enabled": True,

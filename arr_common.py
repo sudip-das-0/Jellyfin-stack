@@ -6,6 +6,7 @@ import json
 import os
 import re
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -52,6 +53,68 @@ def arr_json(
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         raw = resp.read()
         return json.loads(raw.decode()) if raw else {}
+
+
+def norm_qbit_hash(h: str) -> str:
+    return h.upper()
+
+
+def qbit_torrents() -> list[dict]:
+    data = qbit_json("/api/v2/torrents/info")
+    return data if isinstance(data, list) else []
+
+
+def qbit_delete(hashes: list[str], *, delete_files: bool = True) -> None:
+    if not hashes:
+        return
+    body = urllib.parse.urlencode(
+        {"hashes": "|".join(hashes), "deleteFiles": "true" if delete_files else "false"}
+    ).encode()
+    qbit_json("/api/v2/torrents/delete", method="POST", data=body)
+
+
+def fetch_arr_queue(base_url: str, api_key: str) -> list[dict]:
+    records: list[dict] = []
+    page = 1
+    while True:
+        extra = "&includeUnknownSeriesItems=true" if base_url.rstrip("/") == SONARR_URL.rstrip("/") else ""
+        q = arr_json(f"{base_url}/api/v3/queue?page={page}&pageSize=100{extra}", api_key)
+        if not isinstance(q, dict):
+            break
+        batch = q.get("records") or []
+        records.extend(batch)
+        if page * q.get("pageSize", 100) >= q.get("totalRecords", 0):
+            break
+        page += 1
+    return records
+
+
+def arr_queue_remove(
+    base_url: str,
+    api_key: str,
+    queue_id: int,
+    *,
+    remove_from_client: bool = True,
+    blocklist: bool = False,
+    skip_redownload: bool = True,
+) -> bool:
+    qs = urllib.parse.urlencode(
+        {
+            "removeFromClient": "true" if remove_from_client else "false",
+            "blocklist": "true" if blocklist else "false",
+            "skipRedownload": "true" if skip_redownload else "false",
+        }
+    )
+    url = f"{base_url}/api/v3/queue/{queue_id}?{qs}"
+    req = urllib.request.Request(url, method="DELETE", headers={"X-Api-Key": api_key})
+    try:
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            resp.read()
+        return True
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return False
+        raise
 
 
 def qbit_json(
@@ -117,6 +180,36 @@ def prune_dated_logs(directory: Path, prefix: str, *, keep_days: int = 14) -> in
             entry.unlink(missing_ok=True)
             removed += 1
     return removed
+
+
+def qbit_queue_protected_hashes() -> set[str]:
+    """qBittorrent info-hashes still tracked in Sonarr/Radarr download queues."""
+    protected: set[str] = set()
+    for base_url, config in (
+        (SONARR_URL, SONARR_CONFIG),
+        (RADARR_URL, RADARR_CONFIG),
+    ):
+        api_key = read_api_key(config)
+        page = 1
+        while True:
+            extra = "&includeUnknownSeriesItems=true" if base_url == SONARR_URL else ""
+            q = arr_json(
+                f"{base_url}/api/v3/queue?page={page}&pageSize=100{extra}",
+                api_key,
+            )
+            records = (q or {}).get("records") if isinstance(q, dict) else []
+            if not records:
+                break
+            for row in records:
+                if not isinstance(row, dict):
+                    continue
+                download_id = row.get("downloadId")
+                if download_id:
+                    protected.add(str(download_id).casefold())
+            if len(records) < 100:
+                break
+            page += 1
+    return protected
 
 
 def append_recovery_log(msg: str, *, tag: str = "maint") -> None:

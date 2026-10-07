@@ -69,9 +69,13 @@ check_no_seed "http://127.0.0.1:7878" "$RAD_KEY" "Radarr"
 curl -sf -u Dimpu:adminadmin http://127.0.0.1:8080/api/v2/app/preferences | python3 -c "
 import json,sys
 p=json.load(sys.stdin)
-ok=p.get('max_ratio_enabled') and float(p.get('max_ratio',-1))==0
+ok=(
+  p.get('max_ratio_enabled')
+  and float(p.get('max_ratio',-1))==0
+  and int(p.get('max_ratio_act',-1))==0
+)
 sys.exit(0 if ok else 1)
-" &>/dev/null && ok "qBittorrent max_ratio=0" || warn "qBittorrent seeding limits not set (run apply-no-seed-download-policy.sh)"
+" &>/dev/null && ok "qBittorrent max_ratio=0 (pause; *arr removes after import)" || warn "qBittorrent seeding limits wrong (run apply-no-seed-download-policy.sh)"
 
 echo "=== Bazarr webhooks ==="
 curl -sf -H "X-Api-Key: $SON_KEY" http://127.0.0.1:8989/api/v3/notification | python3 -c "
@@ -83,12 +87,38 @@ for n in json.load(sys.stdin):
     break
 " | grep -q 'http://bazarr:6767/api/webhooks/sonarr' && ok "Sonarr → Bazarr webhook" || warn "Sonarr Bazarr webhook URL wrong/missing"
 
+echo "=== Bazarr ↔ Sonarr/Radarr (Docker DNS) ==="
+docker exec bazarr getent hosts sonarr radarr &>/dev/null && ok "Bazarr resolves sonarr/radarr" || warn "Bazarr cannot resolve sonarr/radarr (split compose networks — recreate stack from /mnt/jellyfin/scripts)"
+BAZ_KEY=$(grep -A2 '^auth:' /home/devdas/arr/config/bazarr/config/config.yaml | grep apikey | awk '{print $2}')
+curl -sf -H "X-Api-Key: $BAZ_KEY" http://127.0.0.1:6767/api/system/status | python3 -c "
+import json,sys
+d=json.load(sys.stdin).get('data',{})
+ok=d.get('sonarr_version') not in (None,'unknown','') and d.get('radarr_version') not in (None,'unknown','')
+print('ok' if ok else 'bad')
+sys.exit(0 if ok else 1)
+" &>/dev/null && ok "Bazarr sees Sonarr/Radarr versions" || warn "Bazarr Sonarr/Radarr connection broken (run bazarr-resync-from-arr.sh after fixing network)"
+
+echo "=== Jellyfin Open Subtitles plugin ==="
+JF_KEY=$(sqlite3 /mnt/jellyfin/jellyfin/config/data/jellyfin.db "SELECT AccessToken FROM ApiKeys LIMIT 1;" 2>/dev/null || true)
+if [[ -n "${JF_KEY:-}" ]]; then
+  curl -sf -H "Authorization: MediaBrowser Token=\"$JF_KEY\"" http://127.0.0.1:8096/Plugins | python3 -c "
+import json,sys
+for p in json.load(sys.stdin):
+  if p.get('Id')=='4b9ed42f518548b598036ff2989014c4' and p.get('Status')=='Active':
+    raise SystemExit(0)
+raise SystemExit(1)
+" &>/dev/null && ok "Open Subtitles plugin active" || warn "Open Subtitles plugin missing (run apply-jellyfin-opensubtitles.sh)"
+else
+  warn "Cannot check Jellyfin plugins (no API key)"
+fi
+
 echo "=== Host scripts & systemd ==="
 need_exec "$DIR/lg-tv-process-queue.sh"
 need_exec "$DIR/lg-tv-optimize-daemon.sh"
 need_exec "$DIR/lg-tv-optimize-media.sh"
-need_exec /mnt/jellyfin/scripts/lg-tv-queue-path.sh
-for unit in media-stack.service lg-tv-optimize.service lg-tv-new-media-watch.service torrent-stall-recovery.timer download-activity-log.timer; do
+need_exec "$DIR/hooks/lg-tv-queue-path.sh"
+need_exec "$DIR/hooks/import-sidecar-subs.sh"
+for unit in media-stack.service lg-tv-optimize.service lg-tv-new-media-watch.service torrent-stall-recovery.timer download-activity-log.timer qbit-network-profile.timer; do
   systemctl --user is-enabled "$unit" &>/dev/null && ok "enabled $unit" || warn "not enabled: $unit"
 done
 systemctl --user is-active lg-tv-optimize.service &>/dev/null && ok "lg-tv-optimize.service running" || warn "lg-tv-optimize.service not active"

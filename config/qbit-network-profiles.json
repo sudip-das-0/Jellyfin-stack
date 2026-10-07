@@ -1,0 +1,18 @@
+{
+  "default_profile": "home",
+  "profiles": {
+    "home": {
+      "dl_limit": 6249472,
+      "max_active_downloads": 30,
+      "max_active_torrents": 50
+    },
+    "oneplus_hotspot": {
+      "dl_limit": 0,
+      "max_active_downloads": 100,
+      "max_active_torrents": 120
+    }
+  },
+  "ssid_profiles": {
+    "OnePlus 11R 5G": "oneplus_hotspot"
+  }
+}

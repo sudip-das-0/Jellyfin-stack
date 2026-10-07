@@ -48,6 +48,7 @@ services:
       - /mnt/jellyfin/logs/radarr:/config/logs
       - /mnt/jellyfin:/data
       - /mnt/jellyfin/scripts/hooks:/data/scripts:ro
+      - /mnt/jellyfin/scripts:/data/stack-scripts:ro
     ports:
       - "7878:7878"
     restart: unless-stopped
@@ -67,6 +68,7 @@ services:
       - /mnt/jellyfin/logs/sonarr:/config/logs
       - /mnt/jellyfin:/data
       - /mnt/jellyfin/scripts/hooks:/data/scripts:ro
+      - /mnt/jellyfin/scripts:/data/stack-scripts:ro
     ports:
       - "8989:8989"
     restart: unless-stopped

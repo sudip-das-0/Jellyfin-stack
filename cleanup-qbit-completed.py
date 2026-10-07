@@ -9,7 +9,7 @@ import urllib.parse
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from arr_common import append_recovery_log, qbit_json
+from arr_common import append_recovery_log, qbit_json, qbit_queue_protected_hashes
 
 VERBOSE = os.environ.get("QBIT_CLEANUP_VERBOSE", "") == "1"
 
@@ -28,17 +28,23 @@ def main() -> int:
         append_recovery_log("qbit completed cleanup: unexpected API response", tag="qbit")
         return 1
 
+    protected = qbit_queue_protected_hashes()
     remove: list[str] = []
+    skipped_protected = 0
     for t in torrents:
         if not is_completed(t):
             continue
         h = t.get("hash")
-        if h:
-            remove.append(h)
-            if VERBOSE:
-                append_recovery_log(
-                    f"remove completed: {(t.get('name') or '?')[:90]}", tag="qbit"
-                )
+        if not h:
+            continue
+        if str(h).casefold() in protected:
+            skipped_protected += 1
+            continue
+        remove.append(h)
+        if VERBOSE:
+            append_recovery_log(
+                f"remove completed: {(t.get('name') or '?')[:90]}", tag="qbit"
+            )
 
     if not remove:
         return 0
@@ -47,7 +53,10 @@ def main() -> int:
         {"hashes": "|".join(remove), "deleteFiles": "false"}
     ).encode()
     qbit_json("/api/v2/torrents/delete", method="POST", data=body)
-    append_recovery_log(f"removed {len(remove)} completed torrent(s) (no seed)", tag="qbit")
+    msg = f"removed {len(remove)} completed torrent(s) (no seed)"
+    if skipped_protected:
+        msg += f"; skipped {skipped_protected} still in *arr queue"
+    append_recovery_log(msg, tag="qbit")
     return 0
 
 
