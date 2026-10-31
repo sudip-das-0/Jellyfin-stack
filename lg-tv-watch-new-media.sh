@@ -10,7 +10,7 @@ POLL_SEC=45
 
 mkdir -p "$(dirname "$BASELINE")"
 if [[ ! -f "$BASELINE" ]]; then
-  find "$MEDIA" -type f \( -name '*.mkv' -o -name '*.mp4' \) 2>/dev/null | sort -u > "$BASELINE"
+  lg_tv_find_videos "$MEDIA" 2>/dev/null | sort -u > "$BASELINE"
   echo "LG TV watcher: recorded $(wc -l < "$BASELINE") existing files (will not optimize)"
 fi
 
@@ -25,7 +25,7 @@ if command -v inotifywait >/dev/null 2>&1; then
   echo "LG TV new-media watcher (inotify) on $MEDIA"
   inotifywait -m -r -e close_write -e moved_to --format '%w%f' "$MEDIA" | while read -r file; do
     case "$file" in
-      *.mkv|*.mp4) queue_if_new "$file" ;;
+      *.mkv|*.mp4|*.m2ts|*.ts|*.M2TS|*.TS) queue_if_new "$file" ;;
     esac
   done
 else
@@ -33,9 +33,9 @@ else
   while true; do
     while IFS= read -r file; do
       case "$file" in
-        *.mkv|*.mp4) queue_if_new "$file" ;;
+        *.mkv|*.mp4|*.m2ts|*.ts|*.M2TS|*.TS) queue_if_new "$file" ;;
       esac
-    done < <(find "$MEDIA" -type f \( -name '*.mkv' -o -name '*.mp4' \) 2>/dev/null || true)
+    done < <(lg_tv_find_videos "$MEDIA" 2>/dev/null || true)
     sleep "$POLL_SEC"
   done
 fi

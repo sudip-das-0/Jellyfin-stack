@@ -16,6 +16,10 @@ Technical setup reference: [`jellyfin-media-stack-setup.md`](jellyfin-media-stac
 
 After import, Sonarr/Radarr **remove** the torrent from qBittorrent (**no seeding**). Media stays on disk via **hardlinks** in `/mnt/jellyfin/media`.
 
+**Orphan reconcile (every 5 min):** `reconcile-torrents-library.py` runs before qBit completed cleanup — removes torrent-side **duplicates**, **imports** completed orphans (anime staging renames), queues **LG optimize**. Completed torrents stay in qBit up to **`QBIT_COMPLETED_PROTECT_SEC`** (default 2 h) so import can finish first.
+
+**Missing library (every 24 h):** `queue-missing-downloads.timer` → `MissingEpisodeSearch` + `MissingMoviesSearch` (Wanted → Missing). Log: `stall-recovery/queue-missing-downloads.log`. Manual: `python3 /mnt/jellyfin/scripts/queue-missing-downloads.py`.
+
 ---
 
 ## qBittorrent limits (global)
@@ -24,8 +28,8 @@ After import, Sonarr/Radarr **remove** the torrent from qBittorrent (**no seedin
 |------|--------|--------|
 | Max **download** speed | **50 Mbps** (~6 250 000 B/s) | Global cap in qBittorrent |
 | Max **upload** speed | **100 KiB/s** | Cap if any torrent still uploads briefly before removal |
-| Max **active downloads** | **30** | How many torrents download at once |
-| Max **active torrents** | **50** | Concurrent jobs in client (completed jobs are removed) |
+| Max **active downloads** | **100** | How many torrents download at once (home Wi‑Fi profile) |
+| Max **active torrents** | **120** | Concurrent jobs in client (completed jobs are removed) |
 | **Seeding** | **Off** | `max_ratio=0`, 1 min max seed time; completed torrents removed |
 
 Change in Web UI: **http://192.168.0.175:8080** (or your LAN IP) → Tools → Options → Speed, or via API (see setup doc).
@@ -91,8 +95,8 @@ Runs immediately after dedupe in `download-maintenance.sh`.
 | Import | Sonarr/Radarr **CustomScript** → `arr-import-postprocess.sh` (episode-matched sidecar subs, then LG queue) → `/mnt/jellyfin/logs/lg-tv/optimize.queue`. |
 | New files on disk | `lg-tv-new-media-watch.service` (inotify) queues paths not in baseline. |
 | Transcode | **`lg-tv-optimize.service`** runs continuously (daemon): drains queue **back-to-back** (no gap between files), then waits for new queue entries (inotify or ~10 s poll). One encode at a time. Logs **file size before/after**. |
-| Retries | Up to **3** failed attempts per file (`LG_TV_OPTIMIZE_MAX_RETRIES`); then **dead-letter** log, no re-queue. |
-| Replace | `lg-tv-optimize-media.sh` HEVC→H.264 encode order: **QSV → VAAPI → libx264 (CPU)**; then **replaces** the original. |
+| Retries | Re-queue at **front** on failure. Default **`LG_TV_OPTIMIZE_MAX_RETRIES=4`**: **3** HW-only AV1 attempts (`LG_TV_AV1_HW_ATTEMPTS=3`), then one run may use **`libx264`**; then **dead-letter** if still failing. |
+| Replace | `lg-tv-optimize-media.sh` HEVC→H.264 / AV1→H.264: **QSV → VAAPI → libx264 (CPU, AV1 only after HW retries)**; then **replaces** the original. |
 | Failures | Failed jobs are **re-queued** (up to 3×). **4K/UHD** allowed (`LG_TV_MAX_HEIGHT=0`). Queue existing 4K: `lg-tv-queue-min-height.sh`. |
 
 **Timers / services (user systemd, `linger` on):**
@@ -111,7 +115,7 @@ Runs immediately after dedupe in `download-maintenance.sh`.
 **Dead letter (failed 3×):** `/mnt/jellyfin/logs/lg-tv-optimize.deadletter.log`  
 **Retry counts:** `/mnt/jellyfin/logs/lg-tv-optimize.retries.tsv`
 
-**Subtitles (server default):** User **Dimpu** → subtitles **Always on** (English). Order: (1) on import, copy the release `.srt` whose **SxxExx** matches the episode (Vyndros-style names OK), (2) extract embedded subs to `.eng.srt` before LG TV remux, (3) **Bazarr** + `repair-sidecars-from-torrents.py` for gaps/wrong duplicates. Jellyfin uses external `.eng.srt` only.
+**Subtitles (server default):** User **Dimpu** → subtitles **Always on** (English). Order: (1) on import, copy the release `.srt` whose **SxxExx** matches the episode (Vyndros-style names OK), (2) extract embedded subs to `.eng.srt` before LG TV remux, (3) **Bazarr** (OpenSubtitles.com + free providers) on webhooks + 6 h wanted search, plus `repair-sidecars-from-torrents.py` for gaps. Jellyfin plays external `.eng.srt`; the **Open Subtitles** plugin (`apply-jellyfin-opensubtitles.sh`) enables manual “Search subtitles” in the player (same OS.com account; shares the free daily quota with Bazarr).
 
 **LG TV app:** Playback → maximum streaming bitrate **Maximum**; enable **Subtitles** (English) if the client does not pick up the server default.
 

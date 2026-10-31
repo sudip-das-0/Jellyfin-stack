@@ -11,7 +11,7 @@ if [[ "$raw" == /data/media/* ]]; then
 fi
 
 case "$path" in
-  *.mkv|*.mp4) ;;
+  *.mkv|*.mp4|*.m2ts|*.ts|*.M2TS|*.TS) ;;
   *) exit 0 ;;
 esac
 
@@ -21,17 +21,28 @@ fi
 
 if [[ -d /data/logs ]]; then
   QUEUE=/data/logs/lg-tv/optimize.queue
+  SKIPPED=/data/logs/lg-tv/optimize.skipped
+  BASELINE=/data/logs/lg-tv/watcher.baseline
 else
   QUEUE=/mnt/jellyfin/logs/lg-tv/optimize.queue
+  SKIPPED=/mnt/jellyfin/logs/lg-tv/optimize.skipped
+  BASELINE=/mnt/jellyfin/logs/lg-tv/watcher.baseline
 fi
 RETRIES="$(dirname "$QUEUE")/optimize.retries.tsv"
 
 mkdir -p "$(dirname "$QUEUE")"
-touch "$QUEUE"
+touch "$QUEUE" "$SKIPPED"
+grep -Fxq "$path" "$SKIPPED" 2>/dev/null && exit 0
 grep -Fxq "$path" "$QUEUE" 2>/dev/null && exit 0
 echo "$path" >> "$QUEUE"
+grep -Fxq "$path" "$BASELINE" 2>/dev/null || echo "$path" >> "$BASELINE"
 if [[ "${LG_TV_QUEUE_NO_START:-0}" != 1 ]]; then
   systemctl --user start --no-block lg-tv-optimize.service 2>/dev/null || true
+fi
+
+# Bulk queue runs trim on each path; skip here (process-queue trims on drain).
+if [[ "${LG_TV_QUEUE_NO_START:-0}" == 1 ]]; then
+  exit 0
 fi
 
 if [[ -f "$RETRIES" ]]; then

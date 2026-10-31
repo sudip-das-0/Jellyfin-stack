@@ -183,13 +183,76 @@ def load_arr_matchers() -> set[str]:
     return scene_tokens
 
 
+def show_name_tokens(path: Path) -> list[str]:
+    """Tokens for matching loose files saved directly under torrents/."""
+    tokens: list[str] = []
+    parent = path.parent.name
+    if parent not in ("torrents", ".") and len(parent) >= 4:
+        tokens.append(norm(parent))
+    m = EP_RE.search(path.name)
+    if m:
+        prefix = path.name[: m.start()].strip(" .-_[]")
+        if len(prefix) >= 4:
+            tokens.append(norm(prefix))
+        for part in re.split(r"[.\s_\[\]-]+", prefix):
+            part = part.strip()
+            if len(part) >= 5:
+                tokens.append(norm(part))
+    seen: set[str] = set()
+    out: list[str] = []
+    for t in tokens:
+        if t and t not in seen:
+            seen.add(t)
+            out.append(t)
+    return out
+
+
+def episode_duplicate_in_library(path: Path, media_videos: list[Path]) -> bool:
+    """Same SxxExx already in media/ with a matching show token in the torrent name."""
+    m = EP_RE.search(path.name)
+    if not m:
+        return False
+    season, ep = int(m.group(1)), int(m.group(2))
+    tnorm = norm(path.name)
+    show_tokens = show_name_tokens(path)
+    for mv in media_videos:
+        m2 = EP_RE.search(mv.name)
+        if not m2:
+            continue
+        if int(m2.group(1)) != season or int(m2.group(2)) != ep:
+            continue
+        mv_norm = norm(mv.as_posix())
+        for tok in show_tokens:
+            if len(tok) >= 5 and tok in mv_norm:
+                return True
+        try:
+            rel = mv.relative_to(MEDIA)
+        except ValueError:
+            continue
+        if len(rel.parts) < 2:
+            continue
+        series_norm = norm(rel.parts[1])
+        for chunk in re.split(r"[^a-z0-9]+", series_norm):
+            if len(chunk) >= 5 and chunk in tnorm:
+                return True
+    return False
+
+
 def path_matches_arr(path: Path, scene_tokens: set[str], media_videos: list[Path]) -> bool:
     blob = norm(str(path))
+    m_ep = EP_RE.search(path.name)
     for tok in scene_tokens:
         if len(tok) < 8:
             continue
         if tok in blob:
-            return True
+            # TV episodes: scene/release tokens alone are not enough (series may be partial).
+            if m_ep:
+                if episode_duplicate_in_library(path, media_videos):
+                    return True
+            else:
+                return True
+    if episode_duplicate_in_library(path, media_videos):
+        return True
     m = EP_RE.search(path.name)
     if not m:
         return False

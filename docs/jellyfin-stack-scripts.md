@@ -7,7 +7,7 @@ Live scripts: `/mnt/jellyfin/scripts/`; import hooks in `scripts/hooks/` (mounte
 | Unit | Script |
 |------|--------|
 | `torrent-stall-recovery.timer` (5 min) | `download-maintenance.sh` |
-| `lg-tv-optimize.service` (always on) | `lg-tv-optimize-daemon.sh` → `lg-tv-process-queue.sh` (back-to-back, max **3** retries) |
+| `lg-tv-optimize.service` (always on) | `lg-tv-optimize-daemon.sh` → `lg-tv-process-queue.sh` (one encode at a time; AV1: 3× HW then CPU fallback; max **4** failures → dead-letter) |
 | `lg-tv-new-media-watch.service` | `lg-tv-watch-new-media.sh` |
 | `download-activity-log.timer` (5 min) | `download-activity-log.sh` |
 | `qbit-network-profile.timer` (2 min) | `apply-qbit-network-profile.py` (Wi‑Fi SSID → qBit limits) |
@@ -31,6 +31,6 @@ Live scripts: `/mnt/jellyfin/scripts/`; import hooks in `scripts/hooks/` (mounte
 
 1. **Bazarr webhook** — online subs (NapiProjekt, subf2m, Animetosho, OpenSubtitles.com)
 2. **`arr-import-postprocess.sh`** — episode-matched release `.srt` → `.eng.srt`, then LG TV queue
-3. **`lg-tv-optimize-media.sh`** — extract embedded subs, remux for LG direct play; HEVC→H.264 tries **QSV → VAAPI → libx264**
+3. **`lg-tv-optimize-media.sh`** — extract embedded subs, remux for LG direct play; video **QSV → VAAPI → libx264** (AV1: libx264 only after **`LG_TV_AV1_HW_ATTEMPTS`** queue failures)
 
 Removed / do not use: `arr-queue-dedupe.py` (duplicate of `queue-dedupe.py`).

@@ -1,0 +1,11 @@
+[Unit]
+Description=Every 24 hours — MissingEpisodeSearch + MissingMoviesSearch
+
+[Timer]
+Unit=queue-missing-downloads.service
+OnBootSec=30min
+OnUnitInactiveSec=24h
+Persistent=true
+
+[Install]
+WantedBy=timers.target

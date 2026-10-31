@@ -4,7 +4,7 @@
     "home": {
       "dl_limit": 6249472,
       "max_active_downloads": 30,
-      "max_active_torrents": 50
+      "max_active_torrents": 45
     },
     "oneplus_hotspot": {
       "dl_limit": 0,

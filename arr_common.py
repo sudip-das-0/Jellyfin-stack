@@ -182,6 +182,31 @@ def prune_dated_logs(directory: Path, prefix: str, *, keep_days: int = 14) -> in
     return removed
 
 
+def qbit_completed_grace_hashes() -> set[str]:
+    """Recently finished torrents — allow time for Sonarr/Radarr import before qBit cleanup."""
+    import time
+
+    grace = int(os.environ.get("QBIT_COMPLETED_PROTECT_SEC", "7200"))
+    protected: set[str] = set()
+    try:
+        torrents = qbit_torrents()
+    except urllib.error.URLError:
+        return protected
+    if not isinstance(torrents, list):
+        return protected
+    now = time.time()
+    for t in torrents:
+        progress = float(t.get("progress") or 0)
+        if progress < 0.999:
+            continue
+        comp = int(t.get("completion_on") or 0)
+        if comp > 0 and (now - comp) < grace:
+            h = t.get("hash")
+            if h:
+                protected.add(str(h).casefold())
+    return protected
+
+
 def qbit_queue_protected_hashes() -> set[str]:
     """qBittorrent info-hashes still tracked in Sonarr/Radarr download queues."""
     protected: set[str] = set()
@@ -190,26 +215,18 @@ def qbit_queue_protected_hashes() -> set[str]:
         (RADARR_URL, RADARR_CONFIG),
     ):
         api_key = read_api_key(config)
-        page = 1
-        while True:
-            extra = "&includeUnknownSeriesItems=true" if base_url == SONARR_URL else ""
-            q = arr_json(
-                f"{base_url}/api/v3/queue?page={page}&pageSize=100{extra}",
-                api_key,
-            )
-            records = (q or {}).get("records") if isinstance(q, dict) else []
-            if not records:
-                break
-            for row in records:
-                if not isinstance(row, dict):
-                    continue
-                download_id = row.get("downloadId")
-                if download_id:
-                    protected.add(str(download_id).casefold())
-            if len(records) < 100:
-                break
-            page += 1
+        for row in fetch_arr_queue(base_url, api_key):
+            download_id = row.get("downloadId")
+            if download_id:
+                protected.add(str(download_id).casefold())
     return protected
+
+
+def qbit_all_protected_hashes() -> set[str]:
+    """Queue rows + post-complete import grace window."""
+    out = qbit_queue_protected_hashes()
+    out |= qbit_completed_grace_hashes()
+    return out
 
 
 def append_recovery_log(msg: str, *, tag: str = "maint") -> None:
@@ -255,4 +272,21 @@ def iter_incomplete_seasons(
                 continue
             out.append((title, sid, int(sn), have, total))
     return out
+
+
+def video_container_magic_ok(path: Path) -> bool:
+    """Quick host-side check: file starts like a real MKV/MP4 (not sparse/qBit placeholder)."""
+    try:
+        with path.open("rb") as f:
+            head = f.read(12)
+    except OSError:
+        return False
+    if len(head) < 4:
+        return False
+    ext = path.suffix.lower()
+    if ext in {".mkv", ".webm"}:
+        return head[:4] == b"\x1aE\xdf\xa3"
+    if ext in {".mp4", ".m4v"}:
+        return len(head) >= 8 and head[4:8] == b"ftyp"
+    return True
 

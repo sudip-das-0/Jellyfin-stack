@@ -6,6 +6,12 @@ Wants=network-online.target
 [Service]
 Type=simple
 Environment=LG_TV_MAX_HEIGHT=0
+Environment=LG_TV_HW_DECODE=1
+Environment=LG_TV_AV1_QSV=1
+Environment=LG_TV_AV1_HW_ATTEMPTS=3
+Environment=LG_TV_QSV_DEVICE=/dev/dri/renderD128
+Environment=LG_TV_VAAPI_DRIVER=iHD
+Environment=LG_TV_OPTIMIZE_MAX_RETRIES=4
 ExecStart=/mnt/jellyfin/scripts/lg-tv-optimize-daemon.sh
 Restart=always
 RestartSec=15

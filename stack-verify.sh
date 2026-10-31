@@ -113,11 +113,40 @@ else
 fi
 
 echo "=== Host scripts & systemd ==="
+if [[ -L /home/devdas/arr/scripts ]]; then
+  target=$(readlink -f /home/devdas/arr/scripts)
+  [[ "$target" == "$DIR" ]] && ok "arr/scripts → $DIR" || warn "arr/scripts symlink → $target (expected $DIR)"
+elif [[ -d /home/devdas/arr/scripts ]]; then
+  warn "/home/devdas/arr/scripts is a directory (expected symlink to $DIR)"
+else
+  warn "missing /home/devdas/arr/scripts symlink (ln -sfn $DIR /home/devdas/arr/scripts)"
+fi
 need_exec "$DIR/lg-tv-process-queue.sh"
 need_exec "$DIR/lg-tv-optimize-daemon.sh"
 need_exec "$DIR/lg-tv-optimize-media.sh"
+need_exec "$DIR/lg-tv-queue-av1-for-qsv.sh"
 need_exec "$DIR/hooks/lg-tv-queue-path.sh"
+if grep -q 'download-maintenance.lock' "$DIR/download-maintenance.sh" 2>/dev/null; then
+  ok "download-maintenance uses flock"
+else
+  warn "download-maintenance missing flock (overlapping runs can wedge CPU)"
+fi
 need_exec "$DIR/hooks/import-sidecar-subs.sh"
+REPO_UNIT="$DIR/systemd/user/lg-tv-optimize.service"
+USER_UNIT="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/lg-tv-optimize.service"
+if [[ -f "$REPO_UNIT" && -f "$USER_UNIT" ]]; then
+  for var in LG_TV_AV1_HW_ATTEMPTS LG_TV_OPTIMIZE_MAX_RETRIES LG_TV_HW_DECODE LG_TV_AV1_QSV; do
+    repo_val=$(grep -E "^Environment=${var}=" "$REPO_UNIT" | head -1 | cut -d= -f3- || true)
+    user_val=$(grep -E "^Environment=${var}=" "$USER_UNIT" | head -1 | cut -d= -f3- || true)
+    if [[ -n "$repo_val" && "$repo_val" == "$user_val" ]]; then
+      ok "lg-tv-optimize.service $var=$user_val"
+    elif [[ -z "$user_val" ]]; then
+      warn "lg-tv-optimize.service missing $var (run apply-qsv-transcode-policy.sh or copy repo unit)"
+    else
+      warn "lg-tv-optimize.service drift: $var repo=$repo_val user=$user_val"
+    fi
+  done
+fi
 for unit in media-stack.service lg-tv-optimize.service lg-tv-new-media-watch.service torrent-stall-recovery.timer download-activity-log.timer qbit-network-profile.timer; do
   systemctl --user is-enabled "$unit" &>/dev/null && ok "enabled $unit" || warn "not enabled: $unit"
 done
@@ -125,6 +154,9 @@ systemctl --user is-active lg-tv-optimize.service &>/dev/null && ok "lg-tv-optim
 if systemctl --user is-enabled lg-tv-optimize.timer &>/dev/null; then
   warn "lg-tv-optimize.timer should be disabled (continuous worker replaces it)"
 fi
+for unit in queue-missing-downloads.timer torrent-library-dedupe.timer; do
+  systemctl --user is-enabled "$unit" &>/dev/null && ok "enabled $unit" || warn "not enabled: $unit"
+done
 
 echo "=== Jellyfin transcode device ==="
 if timeout 15 docker exec jellyfin test -e /dev/dri/renderD128 2>/dev/null; then
@@ -136,6 +168,51 @@ if grep -q '<HardwareAccelerationType>qsv</HardwareAccelerationType>' /mnt/jelly
   ok "encoding.xml QSV"
 else
   warn "encoding.xml not set to QSV"
+fi
+ENC_XML=/mnt/jellyfin/jellyfin/config/config/encoding.xml
+if [[ -f "$ENC_XML" ]]; then
+  for c in h264 hevc av1 vp9; do
+    if grep -q "<string>$c</string>" "$ENC_XML" 2>/dev/null; then
+      ok "encoding.xml HW decode: $c"
+    else
+      warn "encoding.xml missing HW decode codec: $c"
+    fi
+  done
+  if grep -q '<PreferSystemNativeHwDecoder>true</PreferSystemNativeHwDecoder>' "$ENC_XML" 2>/dev/null; then
+    ok "encoding.xml PreferSystemNativeHwDecoder"
+  else
+    warn "encoding.xml PreferSystemNativeHwDecoder not true"
+  fi
+  if grep -q '<EnableHardwareEncoding>true</EnableHardwareEncoding>' "$ENC_XML" 2>/dev/null; then
+    ok "encoding.xml hardware encoding enabled"
+  else
+    warn "encoding.xml hardware encoding disabled"
+  fi
+fi
+
+echo "=== LG optimize HW decode tiers ==="
+OPT_SCRIPT="$DIR/lg-tv-optimize-media.sh"
+if [[ -f "$OPT_SCRIPT" ]]; then
+  for needle in hevc-qsv av1-qsv vp9-qsv h264-remux-hw hwaccel; do
+    if grep -q "$needle" "$OPT_SCRIPT" 2>/dev/null; then
+      ok "optimize script includes $needle"
+    else
+      warn "optimize script missing $needle"
+    fi
+  done
+  first_libx=$(grep -n 'run_jellyfin_encode libx264' "$OPT_SCRIPT" | head -1 | cut -d: -f1 || echo 0)
+  first_hw=$(grep -n 'hwaccel' "$OPT_SCRIPT" | head -1 | cut -d: -f1 || echo 99999)
+  if [[ "$first_hw" -lt "$first_libx" && "$first_libx" -gt 0 ]]; then
+    ok "optimize script lists HW decode before libx264 fallback"
+  else
+    warn "optimize script HW/libx264 tier order unexpected"
+  fi
+  if timeout 20 docker exec jellyfin /usr/lib/jellyfin-ffmpeg/ffmpeg -hide_banner -decoders 2>/dev/null \
+    | grep -qE 'av1_qsv|hevc_qsv|h264_qsv|vp9_qsv'; then
+    ok "Jellyfin ffmpeg QSV decoders present"
+  else
+    warn "Jellyfin ffmpeg QSV decoders not found"
+  fi
 fi
 
 echo "=== LG TV queue paths ==="

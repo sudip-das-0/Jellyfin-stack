@@ -173,6 +173,95 @@ def is_foreign_sidecar_name(name: str) -> bool:
     return bool(_FOREIGN_SIDECAR_LANG.search(name))
 
 
+# WEB release folders: 2_English.srt, 10_German.srt, 24_Lithuanian.srt, …
+_RELEASE_NUMBERED_LANG = re.compile(r"(?i)^\d+_([a-z0-9]+)\.srt$")
+_RELEASE_LANG_FOREIGN = frozenset(
+    {
+        "arabic",
+        "bengali",
+        "ben",
+        "bulgarian",
+        "chinese",
+        "czech",
+        "danish",
+        "dutch",
+        "finnish",
+        "french",
+        "fre",
+        "ger",
+        "german",
+        "deu",
+        "greek",
+        "ell",
+        "hebrew",
+        "hin",
+        "hindi",
+        "hungarian",
+        "indonesian",
+        "italian",
+        "japanese",
+        "jpn",
+        "korean",
+        "kor",
+        "lithuanian",
+        "norwegian",
+        "polish",
+        "portuguese",
+        "romanian",
+        "russian",
+        "slovak",
+        "slovenian",
+        "spanish",
+        "spa",
+        "swedish",
+        "tam",
+        "tamil",
+        "tel",
+        "telugu",
+        "thai",
+        "turkish",
+        "ukrainian",
+        "vietnamese",
+    }
+)
+
+
+def is_foreign_subtitle_release_name(name: str) -> bool:
+    """Foreign language track in a release/torrent folder (not canonical .eng.srt)."""
+    if is_foreign_sidecar_name(name):
+        return True
+    if _SUBTITLE_TITLE_FOREIGN.search(name):
+        return True
+    m = _RELEASE_NUMBERED_LANG.match(name)
+    if m:
+        tok = m.group(1).lower()
+        if tok in ("english", "eng", "en"):
+            return False
+        if tok in _RELEASE_LANG_FOREIGN:
+            return True
+        # Unknown token in numbered WEB subs — treat as foreign unless explicitly English.
+        return True
+    return False
+
+
+def is_english_release_subtitle_name(name: str) -> bool:
+    """English .srt candidate inside a release folder (import / torrent repair)."""
+    if is_foreign_subtitle_release_name(name):
+        return False
+    lower = name.lower()
+    if re.search(r"(?<![a-z])(english|eng(?![a-z]))", lower):
+        return True
+    if "eng" in lower or ".en." in lower:
+        return True
+    # Episode-named subs without a language tag (e.g. Vyndros BluRay): English by policy.
+    if _EPISODE_IN_NAME.search(name) and lower.endswith(".srt"):
+        return True
+    return False
+
+
+_EPISODE_IN_NAME = re.compile(r"(?i)(?<![0-9])s(\d{1,2})e(\d{1,2})(?![0-9])")
+
+
 def is_english_sidecar_variant(video_stem: str, sidecar_path: Path) -> bool:
     """Sidecar belongs to this video stem and is an English (non-foreign) track."""
     name = sidecar_path.name

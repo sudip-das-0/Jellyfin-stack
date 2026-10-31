@@ -10,7 +10,7 @@ DEAD=$LG_TV_DEAD
 LOG=$LG_TV_LOG
 SCRIPT="${SCRIPTS_ROOT}/lg-tv-optimize-media.sh"
 PER_RUN="${LG_TV_OPTIMIZE_PER_RUN:-1}"
-MAX_RETRIES="${LG_TV_OPTIMIZE_MAX_RETRIES:-3}"
+MAX_RETRIES="${LG_TV_OPTIMIZE_MAX_RETRIES:-4}"
 # DRAIN=1: process until the queue file is empty (still one encode at a time).
 DRAIN="${LG_TV_OPTIMIZE_DRAIN:-0}"
 GAP_SEC="${LG_TV_OPTIMIZE_GAP_SEC:-0}"
@@ -22,15 +22,22 @@ mkdir -p "$(dirname "$QUEUE")" "$(dirname "$RETRIES")" "$(dirname "$LOG")"
 touch "$QUEUE" "$RETRIES"
 [[ -s "$QUEUE" ]] || exit 0
 
+atomic_write() {
+  local dest=$1
+  local dir
+  dir=$(dirname "$dest")
+  local tmp
+  tmp=$(mktemp "${dir}/.lg-tv-atomic.XXXXXX") || return 1
+  cat > "$tmp"
+  mv -f "$tmp" "$dest"
+}
+
 trim_stale_retries() {
   [[ -f "$RETRIES" ]] || return 0
-  local tmp
-  tmp=$(mktemp)
   while IFS=$'\t' read -r rpath rcount; do
     [[ -n "$rpath" && -f "$rpath" ]] || continue
     printf '%s\t%s\n' "$rpath" "${rcount:-0}"
-  done < "$RETRIES" > "$tmp"
-  mv -f "$tmp" "$RETRIES"
+  done < "$RETRIES" | atomic_write "$RETRIES" || true
 }
 trim_stale_retries
 
@@ -52,16 +59,17 @@ retry_count() {
 
 set_retry_count() {
   local path=$1 count=$2
-  local tmp
-  tmp=$(mktemp)
   awk -F '\t' -v p="$path" -v c="$count" '
     $1 == p { next }
     NF { print }
-  ' "$RETRIES" > "$tmp"
-  if [[ "$count" -gt 0 ]]; then
-    printf '%s\t%s\n' "$path" "$count" >> "$tmp"
-  fi
-  mv -f "$tmp" "$RETRIES"
+  ' "$RETRIES" | {
+    if [[ "$count" -gt 0 ]]; then
+      cat
+      printf '%s\t%s\n' "$path" "$count"
+    else
+      cat
+    fi
+  } | atomic_write "$RETRIES" || true
 }
 
 clear_retry() {
@@ -71,6 +79,18 @@ clear_retry() {
 queue_append() {
   local path=$1
   grep -Fxq "$path" "$QUEUE" 2>/dev/null || echo "$path" >> "$QUEUE"
+}
+
+# Put failed paths back at the front of the queue (deduped).
+queue_requeue_front() {
+  local path=$1
+  local tmp
+  tmp=$(mktemp "${LG_TV_DIR}/.requeue.XXXXXX") || return 1
+  {
+    echo "$path"
+    grep -vxF "$path" "$QUEUE" 2>/dev/null || true
+  } | awk '!seen[$0]++ && NF' > "$tmp"
+  mv -f "$tmp" "$QUEUE"
 }
 
 on_failure() {
@@ -85,31 +105,53 @@ on_failure() {
     return 0
   fi
   set_retry_count "$path" "$n"
-  queue_append "$path"
-  log "re-queued (attempt ${n}/${MAX_RETRIES}): $path"
+  queue_requeue_front "$path"
+  log "re-queued at front (attempt ${n}/${MAX_RETRIES}): $path"
 }
 
 process_queue_batch() {
-  mapfile -t lines < <(grep -v '^[[:space:]]*$' "$QUEUE" 2>/dev/null || true)
+  mapfile -t lines < <(
+    grep -v '^[[:space:]]*$' "$QUEUE" 2>/dev/null | awk '!seen[$0]++' || true
+  )
   [[ ${#lines[@]} -eq 0 ]] && return 1
-  : > "$QUEUE"
-  local attempted=0 path
+
+  local -a pending=()
+  local attempted=0 path normalized
 
   for path in "${lines[@]}"; do
     [[ -n "$path" ]] || continue
-    path=$(normalize_path "$path")
+    normalized=$(normalize_path "$path")
     if [[ "$attempted" -lt "$PER_RUN" ]]; then
-      if "$SCRIPT" "$path"; then
-        clear_retry "$path"
-        attempted=$((attempted + 1))
-      else
-        on_failure "$path"
-        attempted=$((attempted + 1))
-      fi
+      path=$normalized
+      attempted=$((attempted + 1))
     else
-      queue_append "$path"
+      pending+=("$normalized")
     fi
   done
+
+  [[ "$attempted" -eq 0 ]] && return 1
+
+  # Persist tail before encode so restart mid-job does not lose the backlog.
+  if [[ ${#pending[@]} -gt 0 ]]; then
+    printf '%s\n' "${pending[@]}" | awk '!seen[$0]++' | atomic_write "$QUEUE" || return 1
+  else
+    : | atomic_write "$QUEUE" || return 1
+  fi
+
+  local prior_failures
+  prior_failures=$(retry_count "$path")
+  if [[ "$prior_failures" -ge "${LG_TV_AV1_HW_ATTEMPTS:-3}" ]]; then
+    export LG_TV_AV1_ALLOW_CPU=1
+    log "AV1 libx264 fallback enabled (prior failures=${prior_failures}): $path"
+  else
+    export LG_TV_AV1_ALLOW_CPU=0
+  fi
+
+  if "$SCRIPT" "$path"; then
+    clear_retry "$path"
+  else
+    on_failure "$path"
+  fi
   return 0
 }
 

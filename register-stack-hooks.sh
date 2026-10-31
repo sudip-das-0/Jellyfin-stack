@@ -8,6 +8,7 @@ DIR=$(dirname "$(readlink -f "$0")")
 "$DIR/register-arr-import-hook.sh"
 "$DIR/register-bazarr-webhooks.sh"
 "$DIR/bazarr-apply-opensubtitles-apikey.sh" || true
+"$DIR/apply-jellyfin-opensubtitles.sh" || true
 "$DIR/apply-media-language-policy.sh" --settings-only
 "$DIR/apply-tv-series-playback.sh"
 "$DIR/lg-tv-normalize-queue.sh" 2>/dev/null || true

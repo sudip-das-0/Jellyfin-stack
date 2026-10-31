@@ -35,13 +35,19 @@ is_foreign_name() {
 }
 
 is_english_candidate() {
-  local l=${1,,}
-  is_foreign_name "$1" && return 1
-  [[ "$l" == *eng* || "$l" == *.en.* || "$l" == *english* || "$l" == *.srt ]]
+  local name=$1
+  local l=${name,,}
+  is_foreign_name "$name" && return 1
+  [[ "$l" =~ (^|[^a-z])(english|eng([^a-z]|$)) ]] && return 0
+  [[ "$l" == *eng* || "$l" == *.en.* ]] && return 0
+  [[ "$l" =~ ^[0-9]+_(english|eng)\.srt$ ]] && return 0
+  [[ "$l" =~ [sS][0-9]+[eE][0-9]+ && "$l" == *.srt ]] && return 0
+  return 1
 }
 
 score_candidate() {
   local name=$1
+  local full_path=${2:-}
   local l=${name,,}
   local score=30
   [[ "$l" == *.eng.srt ]] && score=0
@@ -52,6 +58,9 @@ score_candidate() {
   if [[ -n "$video_ep" ]]; then
     local srt_ep
     srt_ep=$(extract_episode_code "$name" || true)
+    if [[ -z "$srt_ep" && -n "$full_path" ]]; then
+      srt_ep=$(extract_episode_code "$(basename "$(dirname "$full_path")")" || true)
+    fi
     [[ "$srt_ep" != "$video_ep" ]] && return 1
   else
     local srt_stem=${name%.srt}
@@ -65,10 +74,10 @@ pick_from_dir() {
   [[ -d "$dir" ]] || return 1
   local best_score=9999 best_file=
   local f score
-  for f in "$dir"/*.srt "$dir"/*/*.srt; do
+  for f in "$dir"/*.srt "$dir"/*/*.srt "$dir"/*/*/*.srt; do
     [[ -f "$f" ]] || continue
     is_english_candidate "$(basename "$f")" || continue
-    score=$(score_candidate "$(basename "$f")" || true)
+    score=$(score_candidate "$(basename "$f")" "$f" || true)
     [[ -z "$score" ]] && continue
     if (( score < best_score )); then
       best_score=$score

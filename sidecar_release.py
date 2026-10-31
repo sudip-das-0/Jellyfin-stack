@@ -25,15 +25,44 @@ def episode_code_label(text: str) -> str | None:
     return f"S{int(m.group(1)):02d}E{int(m.group(2)):02d}"
 
 
+_LIBRARY_ROOTS = ("series", "anime", "movies", "other")
+
+
+def library_show_name(video_path: Path) -> str:
+    parts = video_path.parts
+    for root in _LIBRARY_ROOTS:
+        if root in parts:
+            idx = parts.index(root)
+            if idx + 1 < len(parts):
+                return parts[idx + 1]
+    return ""
+
+
+def show_match_tokens(show_name: str) -> list[str]:
+    return [t for t in re.split(r"[^a-z0-9]+", show_name.lower()) if len(t) >= 4]
+
+
+def path_matches_show(path: Path, tokens: list[str]) -> bool:
+    if not tokens:
+        return True
+    blob = str(path).lower().replace(" ", "")
+    return any(t in blob for t in tokens)
+
+
+def release_subtitle_episode_code(srt: Path) -> str | None:
+    """SxxExx from the .srt name or a parent folder (e.g. Subs/Show.S02E02…/2_English.srt)."""
+    code = episode_code_label(srt.name)
+    if code:
+        return code
+    for parent in srt.parents:
+        code = episode_code_label(parent.name)
+        if code:
+            return code
+    return None
+
+
 def is_english_release_subtitle_name(name: str) -> bool:
-    if mlp.is_foreign_sidecar_name(name):
-        return False
-    lower = name.lower()
-    if "eng" in lower or ".en." in lower or "english" in lower:
-        return True
-    if lower.endswith(".srt"):
-        return True
-    return False
+    return mlp.is_english_release_subtitle_name(name)
 
 
 def _stem_overlap_score(video_stem: str, sub_stem: str) -> int:
@@ -56,7 +85,7 @@ def score_release_candidate(video_stem: str, video_ep: str | None, srt: Path) ->
     if mlp.is_foreign_sidecar_name(name):
         return None
 
-    srt_ep = episode_code_label(name)
+    srt_ep = release_subtitle_episode_code(srt)
     if video_ep:
         if not srt_ep or srt_ep.upper() != video_ep.upper():
             return None
@@ -148,28 +177,46 @@ def find_torrent_sidecar_for_video(
     if not torrent_root.is_dir():
         return None
 
-    show_hint = ""
-    parts = video_path.parts
-    if "series" in parts:
-        idx = parts.index("series")
-        if idx + 1 < len(parts):
-            show_hint = parts[idx + 1].lower().replace(" ", "")
+    tokens = show_match_tokens(library_show_name(video_path))
+
+    def consider(candidate: Path) -> None:
+        nonlocal best
+        score = score_release_candidate(video_path.stem, video_ep, candidate)
+        if score is None:
+            return
+        key = (score, candidate.name.lower(), candidate)
+        if best is None or key < best:
+            best = key
 
     best: tuple[int, str, Path] | None = None
     for srt in torrent_root.rglob("*.srt"):
-        if episode_code_label(srt.name) != video_ep:
+        if release_subtitle_episode_code(srt) != video_ep:
             continue
-        if show_hint:
-            folder_blob = str(srt.parent).lower().replace(" ", "")
-            if show_hint[:8] not in folder_blob and show_hint not in folder_blob:
-                # loose: require show token in torrent path
-                tokens = [t for t in re.split(r"[^a-z0-9]+", show_hint) if len(t) >= 4]
-                if tokens and not any(t in folder_blob for t in tokens):
-                    continue
-        score = score_release_candidate(video_path.stem, video_ep, srt)
-        if score is None:
+        if not path_matches_show(srt, tokens):
             continue
-        key = (score, srt.name.lower(), srt)
-        if best is None or key < best:
-            best = key
+        consider(srt)
+
+    video_suffixes = {".mkv", ".mp4"}
+    for release in torrent_root.rglob("*"):
+        if release.suffix.lower() not in video_suffixes or not release.is_file():
+            continue
+        if release_subtitle_episode_code(release) != video_ep:
+            continue
+        if not path_matches_show(release, tokens):
+            continue
+        folder = release.parent
+        stem = release.stem
+        for candidate in (
+            folder / f"{stem}.srt",
+            folder / f"{stem}.eng.srt",
+            folder / "Subs" / f"{stem}.srt",
+        ):
+            if candidate.is_file():
+                consider(candidate)
+        subs_dir = folder / "Subs" / stem
+        if subs_dir.is_dir():
+            for candidate in subs_dir.glob("*.srt"):
+                if candidate.is_file():
+                    consider(candidate)
+
     return best[2] if best else None

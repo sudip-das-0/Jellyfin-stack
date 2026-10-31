@@ -9,7 +9,7 @@ import urllib.parse
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from arr_common import append_recovery_log, qbit_json, qbit_queue_protected_hashes
+from arr_common import append_recovery_log, qbit_all_protected_hashes, qbit_json
 
 VERBOSE = os.environ.get("QBIT_CLEANUP_VERBOSE", "") == "1"
 
@@ -23,12 +23,12 @@ def is_completed(t: dict) -> bool:
 
 
 def main() -> int:
-    torrents = qbit_json("/api/v2/torrents/info")
+    torrents = qbit_json("/api/v2/torrents/info", timeout=60)
     if not isinstance(torrents, list):
         append_recovery_log("qbit completed cleanup: unexpected API response", tag="qbit")
         return 1
 
-    protected = qbit_queue_protected_hashes()
+    protected = qbit_all_protected_hashes()
     remove: list[str] = []
     skipped_protected = 0
     for t in torrents:

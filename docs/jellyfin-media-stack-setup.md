@@ -326,7 +326,7 @@ After editing `encoding.xml`, restart Jellyfin: **`jellyfin restart`** (restarts
 
 **No paid APIs.** Bazarr providers: **NapiProjekt**, **subf2m**, **Animetosho**, **OpenSubtitles.com** (API key in `config.yaml`; also set **username + password** from the same OpenSubtitles account in Bazarr → Settings → Providers). After a Bazarr container recreate, run `/mnt/jellyfin/scripts/bazarr-apply-opensubtitles-apikey.sh` or restart Bazarr (uses `custom-cont-init.d`). On import, `import-sidecar-subs.sh` copies torrent `Subs/`; LG optimize saves embedded subs to `.eng.srt` before remux.
 
-Language profile: **English** (default for all series/movies). Re-register hooks: `/mnt/jellyfin/scripts/register-stack-hooks.sh`
+Language profile: **English** (`profileId: 1` in Bazarr `config.yaml` — use the numeric id, not the profile name, or Sonarr sync hits FK errors). Re-register hooks: `/mnt/jellyfin/scripts/register-stack-hooks.sh`. After FK/sync issues: `/mnt/jellyfin/scripts/bazarr-resync-from-arr.sh`
 
 ---
 

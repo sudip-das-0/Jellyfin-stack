@@ -18,6 +18,10 @@ touch "$QUEUE"
 log() { echo "$(date -Iseconds) [daemon] $*" >> "$LOG"; }
 
 drain_queue() {
+  # Do not start a second job while an encode script is still running (avoids overlapping ffmpeg).
+  if pgrep -f 'lg-tv-optimize-media\.sh' >/dev/null 2>&1; then
+    return 0
+  fi
   # Empty queue → process-queue exits immediately (non-blocking for idle loop).
   "$PROCESS" || true
 }

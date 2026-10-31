@@ -43,7 +43,7 @@ while IFS= read -r -d '' src; do
   fi
   queued=$((queued + 1))
 done < <(find "$MEDIA_ROOT/movies" "$MEDIA_ROOT/series" "$MEDIA_ROOT/anime" \
-  -type f \( -name '*.mkv' -o -name '*.mp4' \) -print0 2>/dev/null)
+  -type f \( -iname '*.mkv' -o -iname '*.mp4' -o -iname '*.m2ts' -o -iname '*.ts' \) -print0 2>/dev/null)
 
 echo "min height=${MIN_H}p queued=${queued} already_in_queue=${skipped} dry_run=${DRY}"
 if [[ "$DRY" -eq 0 && "$queued" -gt 0 ]]; then

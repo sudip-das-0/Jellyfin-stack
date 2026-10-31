@@ -11,6 +11,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from arr_common import RADARR_CONFIG, RADARR_URL, SONARR_CONFIG, SONARR_URL, read_api_key
 PROFILE_NAME = "HD-1080p"
+ANIME_PROFILE_NAME = "HD-1080p Anime"
 
 SCORES = {
     "TV Direct Play - x264": 1000,
@@ -24,6 +25,14 @@ SCORES = {
     "TV Direct Play - HEVC": -1000,
     "TV Direct Play - Surround": -750,
     "TV Direct Play - French Only": -600,
+}
+
+# Prefer releases with Japanese audio; minFormatScore requires Japanese track in the file.
+ANIME_SCORES = {
+    **SCORES,
+    "TV Direct Play - Japanese Audio": 900,
+    "TV Direct Play - English Audio": 400,
+    "TV Direct Play - English Title": 200,
 }
 
 FORMATS = [
@@ -272,17 +281,35 @@ def ensure_formats(base_url: str, api_key: str) -> dict[str, int]:
     return by_name
 
 
-def apply_profile(base_url: str, api_key: str, name_to_id: dict[str, int]) -> None:
-    profiles = http_json(f"{base_url}/api/v3/qualityprofile", api_key)
-    profile = next((p for p in profiles if p["name"] == PROFILE_NAME), None)
-    if not profile:
-        raise RuntimeError(f"Profile {PROFILE_NAME!r} not found on {base_url}")
+def _apply_profile_scores(
+    base_url: str,
+    api_key: str,
+    profiles: list[dict],
+    name_to_id: dict[str, int],
+    *,
+    profile_name: str,
+    scores: dict[str, int],
+    min_format_score: int,
+    clone_from: str | None = None,
+) -> dict:
+    profile = next((p for p in profiles if p["name"] == profile_name), None)
+    if profile is None:
+        if not clone_from:
+            raise RuntimeError(f"Profile {profile_name!r} not found on {base_url}")
+        template = next((p for p in profiles if p["name"] == clone_from), None)
+        if not template:
+            raise RuntimeError(f"Template profile {clone_from!r} not found on {base_url}")
+        profile = {k: v for k, v in template.items() if k != "id"}
+        profile["name"] = profile_name
+        profile = http_json(f"{base_url}/api/v3/qualityprofile", api_key, method="POST", data=profile)
+        profiles.append(profile)
+        print(f"{base_url}: created profile {profile_name} (id={profile['id']})")
 
     profile["formatItems"] = [
         {"format": name_to_id[fmt_name], "name": fmt_name, "score": score}
-        for fmt_name, score in SCORES.items()
+        for fmt_name, score in scores.items()
     ]
-    profile["minFormatScore"] = 0
+    profile["minFormatScore"] = min_format_score
     profile["minUpgradeFormatScore"] = 1
 
     http_json(
@@ -291,7 +318,54 @@ def apply_profile(base_url: str, api_key: str, name_to_id: dict[str, int]) -> No
         method="PUT",
         data=profile,
     )
-    print(f"{base_url}: applied scores to profile {PROFILE_NAME} (id={profile['id']})")
+    print(
+        f"{base_url}: applied scores to profile {profile_name} "
+        f"(id={profile['id']}, minFormatScore={min_format_score})"
+    )
+    return profile
+
+
+def apply_profile(base_url: str, api_key: str, name_to_id: dict[str, int]) -> None:
+    profiles = http_json(f"{base_url}/api/v3/qualityprofile", api_key)
+    _apply_profile_scores(
+        base_url,
+        api_key,
+        profiles,
+        name_to_id,
+        profile_name=PROFILE_NAME,
+        scores=SCORES,
+        min_format_score=0,
+    )
+
+
+def apply_anime_profile(base_url: str, api_key: str, name_to_id: dict[str, int]) -> int:
+    profiles = http_json(f"{base_url}/api/v3/qualityprofile", api_key)
+    profile = _apply_profile_scores(
+        base_url,
+        api_key,
+        profiles,
+        name_to_id,
+        profile_name=ANIME_PROFILE_NAME,
+        scores=ANIME_SCORES,
+        min_format_score=ANIME_SCORES["TV Direct Play - Japanese Audio"],
+        clone_from=PROFILE_NAME,
+    )
+    return int(profile["id"])
+
+
+def assign_sonarr_anime_quality_profile(base_url: str, api_key: str, anime_profile_id: int) -> None:
+    series_list = http_json(f"{base_url}/api/v3/series", api_key)
+    updated = 0
+    for series in series_list:
+        is_anime = series.get("seriesType") == "anime" or "/anime" in (
+            series.get("rootFolderPath") or ""
+        ).replace("\\", "/")
+        if not is_anime or series.get("qualityProfileId") == anime_profile_id:
+            continue
+        body = {**series, "qualityProfileId": anime_profile_id}
+        http_json(f"{base_url}/api/v3/series/{series['id']}", api_key, method="PUT", data=body)
+        updated += 1
+    print(f"{base_url}: set {ANIME_PROFILE_NAME} on {updated} anime series")
 
 
 def main() -> int:
@@ -303,6 +377,9 @@ def main() -> int:
         try:
             name_to_id = ensure_formats(base, api_key)
             apply_profile(base, api_key, name_to_id)
+            if label == "Sonarr":
+                anime_id = apply_anime_profile(base, api_key, name_to_id)
+                assign_sonarr_anime_quality_profile(base, api_key, anime_id)
         except urllib.error.URLError as e:
             print(f"{label} unavailable: {e}", file=sys.stderr)
             return 1

@@ -105,6 +105,13 @@ for rel in (
         count=1,
         flags=re.DOTALL,
     )
+    new = re.sub(
+        r"<RequirePerfectSubtitleMatch>.*?</RequirePerfectSubtitleMatch>",
+        "<RequirePerfectSubtitleMatch>false</RequirePerfectSubtitleMatch>",
+        new,
+        count=1,
+        flags=re.DOTALL,
+    )
     p.write_text(new, encoding="utf-8")
     print(
         f"Jellyfin {p.parent.name}: subtitle langs {subtitle_langs}, "
@@ -130,15 +137,15 @@ import re
 cfg = Path("/home/devdas/arr/config/bazarr/config/config.yaml")
 text = cfg.read_text(encoding="utf-8")
 replacements = {
-    r"^  serie_default_profile: .*$": "  serie_default_profile: English subtitles",
-    r"^  movie_default_profile: .*$": "  movie_default_profile: English subtitles",
+    r"^  serie_default_profile: .*$": "  serie_default_profile: 1",
+    r"^  movie_default_profile: .*$": "  movie_default_profile: 1",
     r"^  single_language: .*$": "  single_language: true",
     r"^  use_embedded_subs: .*$": "  use_embedded_subs: false",
 }
 for pattern, repl in replacements.items():
     text = re.sub(pattern, repl, text, count=1, flags=re.M)
 cfg.write_text(text, encoding="utf-8")
-print("Bazarr defaults: English subtitles profile, single_language=true, use_embedded_subs=false")
+print("Bazarr defaults: profileId=1 (English subtitles), single_language=true, use_embedded_subs=false")
 PY
 
 BAZ_KEY=$(grep -A2 '^auth:' /home/devdas/arr/config/bazarr/config/config.yaml | grep apikey | awk '{print $2}')
