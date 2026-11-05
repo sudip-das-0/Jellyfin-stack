@@ -6,6 +6,9 @@ DIR=$(dirname "$(readlink -f "$0")")
 
 "$DIR/apply-no-seed-download-policy.sh"
 "$DIR/register-arr-import-hook.sh"
+"$DIR/register-arr-delete-sync.sh"
+"$DIR/register-arr-unmonitor-import.sh"
+"$DIR/apply-jellyfin-ui-delete-sync.sh" || true
 "$DIR/register-bazarr-webhooks.sh"
 "$DIR/bazarr-apply-opensubtitles-apikey.sh" || true
 "$DIR/apply-jellyfin-opensubtitles.sh" || true

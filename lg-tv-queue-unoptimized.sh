@@ -53,6 +53,9 @@ def videos():
     return out
 
 
+MAX_GIB_PER_HOUR = float(os.environ.get("LG_TV_MAX_GIB_PER_HOUR", "3.5"))
+
+
 def ffprobe(path: str):
     rel = path[len("/mnt/jellyfin/media/") :]
     cin = f"/media/{rel}"
@@ -64,14 +67,33 @@ def ffprobe(path: str):
         "-v",
         "error",
         "-show_streams",
+        "-show_format",
         "-of",
         "json",
         cin,
     ]
     r = subprocess.run(cmd, capture_output=True, text=True, timeout=90)
     if r.returncode != 0:
-        return path, None
-    return path, json.loads(r.stdout).get("streams", [])
+        return path, None, None
+    data = json.loads(r.stdout)
+    dur = None
+    try:
+        dur = float((data.get("format") or {}).get("duration") or 0)
+    except (TypeError, ValueError):
+        dur = None
+    if dur is not None and dur <= 0:
+        dur = None
+    return path, data.get("streams", []), dur
+
+
+def file_gib_per_hour(path: str, duration_sec: float | None) -> float | None:
+    if duration_sec is None:
+        return None
+    try:
+        size = os.path.getsize(path)
+    except OSError:
+        return None
+    return size * 3600.0 / duration_sec / (1024**3)
 
 
 def audio_maps(streams):
@@ -87,9 +109,12 @@ def audio_maps(streams):
     return " ".join(f"-map 0:{idx}" for _, idx in rows)
 
 
-def is_lg_friendly(streams) -> bool:
-    """Match lg-tv-optimize-media.sh skip rules (already TV-ready)."""
+def is_lg_friendly(streams, path: str, duration_sec: float | None) -> bool:
+    """Match lg-tv-optimize-media.sh skip rules (already TV-ready + storage target)."""
     if not streams:
+        return False
+    gib = file_gib_per_hour(path, duration_sec)
+    if gib is not None and gib > MAX_GIB_PER_HOUR:
         return False
     v = next((s for s in streams if s.get("codec_type") == "video"), None)
     audios = [s for s in streams if s.get("codec_type") == "audio"]
@@ -123,7 +148,6 @@ def is_lg_friendly(streams) -> bool:
         and ach == 2
         and scount == 0
         and acount == 1
-        and (vbr_i is None or vbr_i <= 12_000_000)
     ):
         return True
     return False
@@ -134,10 +158,13 @@ def needs_mkv_container(path: str) -> bool:
     return low.endswith(".m2ts") or low.endswith(".ts")
 
 
-def needs_optimize(path: str, streams) -> bool:
+def needs_optimize(path: str, streams, duration_sec: float | None) -> bool:
     if needs_mkv_container(path):
         return True
-    return not is_lg_friendly(streams)
+    gib = file_gib_per_hour(path, duration_sec)
+    if gib is not None and gib > MAX_GIB_PER_HOUR:
+        return True
+    return not is_lg_friendly(streams, path, duration_sec)
 
 
 paths = videos()
@@ -147,12 +174,12 @@ probe_fail = 0
 with ThreadPoolExecutor(max_workers=6) as ex:
     futs = {ex.submit(ffprobe, p): p for p in paths}
     for fut in as_completed(futs):
-        path, streams = fut.result()
+        path, streams, duration_sec = fut.result()
         if streams is None:
             probe_fail += 1
             print(f"probe_fail: {path}", file=sys.stderr)
             continue
-        if needs_optimize(path, streams):
+        if needs_optimize(path, streams, duration_sec):
             need.append(path)
         else:
             friendly += 1
@@ -182,8 +209,12 @@ touch "$LG_TV_SKIPPED" 2>/dev/null || true
 while IFS= read -r path; do
   [[ -n "$path" && -f "$path" ]] || continue
   if grep -Fxq "$path" "$LG_TV_SKIPPED" 2>/dev/null; then
-    skipped=$((skipped + 1))
-    continue
+    if /usr/bin/python3 /mnt/jellyfin/scripts/lg_tv_storage.py "$path" "${LG_TV_MAX_GIB_PER_HOUR:-3.5}" >/dev/null 2>&1; then
+      skipped=$((skipped + 1))
+      continue
+    fi
+    grep -vxF "$path" "$LG_TV_SKIPPED" > "${LG_TV_SKIPPED}.tmp" 2>/dev/null \
+      && mv "${LG_TV_SKIPPED}.tmp" "$LG_TV_SKIPPED" || true
   fi
   if [[ "$DRY" -eq 1 ]]; then
     echo "would queue: $path"

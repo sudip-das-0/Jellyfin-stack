@@ -5,7 +5,7 @@ Run via: ``cleanup-partial-series.py --torrent-library [--dry-run]`` (not on the
 
 Safe rules:
 - Never touch /mnt/jellyfin/torrents/incomplete
-- Skip paths tied to in-progress qBittorrent jobs
+- Skip in-progress qBittorrent jobs unless Sonarr/Radarr already has the episode/movie on disk
 - Delete torrent-side hardlinks when the same inode exists under media/
 - Delete orphan (nlink=1) downloads matched via Sonarr/Radarr scene names or SxxExx + library paths
 """
@@ -28,14 +28,16 @@ from arr_common import (
     STALL_LOG_DIR,
     append_recovery_log,
     arr_json,
+    qbit_delete,
     qbit_json,
     read_api_key,
     rotate_log_file,
 )
+from orphan_import_helpers import resolve_episode_from_filename
 
 TORRENTS = Path("/mnt/jellyfin/torrents")
 MEDIA = Path("/mnt/jellyfin/media")
-VIDEO_EXT = {".mkv", ".mp4", ".m4v", ".avi", ".wmv", ".ts"}
+VIDEO_EXT = {".mkv", ".mp4", ".m4v", ".avi", ".wmv", ".ts", ".m2ts"}
 LOG_FILE = STALL_LOG_DIR / "torrent-library-cleanup.log"
 
 EP_RE = re.compile(r"[Ss](\d{1,2})[Ee](\d{1,2})")
@@ -101,6 +103,46 @@ def qbit_protected_roots() -> set[Path]:
         p = Path(host_torrent_path(content))
         protected.add(p)
     return protected
+
+
+def qbit_content_index() -> list[tuple[Path, str]]:
+    """All torrent content roots → info-hash (for removing client jobs on duplicates)."""
+    index: list[tuple[Path, str]] = []
+    try:
+        torrents = qbit_json("/api/v2/torrents/info")
+    except urllib.error.URLError:
+        return index
+    if not isinstance(torrents, list):
+        return index
+    for t in torrents:
+        h = t.get("hash")
+        if not h:
+            continue
+        content = t.get("content_path") or ""
+        if not content:
+            save = t.get("save_path") or "/data/torrents"
+            content = os.path.join(save, t.get("name") or "")
+        index.append((Path(host_torrent_path(content)), str(h)))
+    return index
+
+
+def torrent_hash_for_path(path: Path, index: list[tuple[Path, str]]) -> str | None:
+    path = path.resolve()
+    best_hash: str | None = None
+    best_depth = -1
+    for root, thash in index:
+        root = root.resolve()
+        try:
+            path.relative_to(root)
+            depth = len(root.parts)
+        except ValueError:
+            if path != root:
+                continue
+            depth = len(root.parts)
+        if depth >= best_depth:
+            best_depth = depth
+            best_hash = thash
+    return best_hash
 
 
 def is_protected(path: Path, protected: set[Path]) -> bool:
@@ -275,6 +317,32 @@ def path_matches_arr(path: Path, scene_tokens: set[str], media_videos: list[Path
     return False
 
 
+def is_library_duplicate(
+    path: Path,
+    *,
+    media_by_inode: dict[int, list[Path]],
+    scene_tokens: set[str],
+    media_videos: list[Path],
+    sonarr_key: str,
+    cache: dict,
+) -> tuple[bool, bool]:
+    """Returns (is_duplicate, is_hardlink_to_media)."""
+    try:
+        ino = path.stat().st_ino
+        nlink = path.stat().st_nlink
+    except OSError:
+        return False, False
+    media_links = [mp for mp in media_by_inode.get(ino, []) if str(mp).startswith(str(MEDIA))]
+    if media_links:
+        return True, nlink > 1
+    if path_matches_arr(path, scene_tokens, media_videos):
+        return True, False
+    ep = resolve_episode_from_filename(path.name, sonarr_key, cache)
+    if ep and ep.get("hasFile"):
+        return True, False
+    return False, False
+
+
 def collect_media_videos() -> list[Path]:
     out: list[Path] = []
     for root, _, files in os.walk(MEDIA):
@@ -296,6 +364,38 @@ def prune_empty_dirs(start: Path) -> None:
         cur = cur.parent
 
 
+def dir_has_video(root: Path) -> bool:
+    for r, _, files in os.walk(root):
+        for name in files:
+            if Path(name).suffix.lower() in VIDEO_EXT:
+                return True
+    return False
+
+
+def prune_junk_release_dirs(protected: set[Path], dry_run: bool) -> int:
+    """Remove top-level torrent release folders with no video (subs/jpg/nfo debris)."""
+    skip_names = {"incomplete", ".reconcile-staging"}
+    removed = 0
+    for entry in sorted(TORRENTS.iterdir()):
+        if not entry.is_dir() or entry.name in skip_names:
+            continue
+        if is_protected(entry, protected):
+            continue
+        if dir_has_video(entry):
+            continue
+        if dry_run:
+            log(f"would remove junk release dir: {entry}")
+            removed += 1
+            continue
+        try:
+            shutil.rmtree(entry)
+            removed += 1
+            log(f"removed junk release dir: {entry.name[:80]}")
+        except OSError as e:
+            log(f"failed junk dir {entry.name[:60]}: {e}")
+    return removed
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -310,14 +410,17 @@ def main() -> int:
         return 1
 
     protected = qbit_protected_roots()
+    qbit_index = qbit_content_index()
     log(f"qBittorrent protected roots (in-progress): {len(protected)}")
 
     media_by_inode = media_paths_by_inode()
     scene_tokens = load_arr_matchers()
     media_videos = collect_media_videos()
+    sonarr_key = read_api_key(SONARR_CONFIG)
+    sonarr_cache: dict = {}
     log(f"media video files: {len(media_videos)}; scene tokens: {len(scene_tokens)}")
 
-    to_delete: list[Path] = []
+    to_delete: list[tuple[Path, bool]] = []
     skipped_protected = skipped_nomatch = 0
 
     for root, _, files in os.walk(TORRENTS):
@@ -328,65 +431,98 @@ def main() -> int:
             p = root_path / name
             if p.suffix.lower() not in VIDEO_EXT:
                 continue
+            dup, hardlink = is_library_duplicate(
+                p,
+                media_by_inode=media_by_inode,
+                scene_tokens=scene_tokens,
+                media_videos=media_videos,
+                sonarr_key=sonarr_key,
+                cache=sonarr_cache,
+            )
+            if dup:
+                to_delete.append((p, hardlink))
+                continue
             if is_protected(p, protected):
                 skipped_protected += 1
                 continue
-            try:
-                st = p.stat()
-            except OSError:
-                continue
-            ino = st.st_ino
-            media_links = [
-                mp for mp in media_by_inode.get(ino, []) if str(mp).startswith(str(MEDIA))
-            ]
-            if media_links:
-                to_delete.append(p)
-                continue
-            if path_matches_arr(p, scene_tokens, media_videos):
-                to_delete.append(p)
-            else:
-                skipped_nomatch += 1
+            skipped_nomatch += 1
 
-    total_bytes = sum(p.stat().st_size for p in to_delete if p.is_file())
+    total_bytes = sum(p.stat().st_size for p, _ in to_delete if p.is_file())
     log(
-        f"{'DRY-RUN: ' if args.dry_run else ''}delete {len(to_delete)} file(s), "
-        f"~{total_bytes / 1e9:.1f} GB; protected={skipped_protected} no_match={skipped_nomatch}"
+        f"{'DRY-RUN: ' if args.dry_run else ''}delete {len(to_delete)} duplicate file(s), "
+        f"~{total_bytes / 1e9:.1f} GB; protected_non_dup={skipped_protected} "
+        f"no_match={skipped_nomatch}"
     )
 
     deleted = 0
     parent_dirs: set[Path] = set()
-    for p in to_delete:
-        if args.dry_run:
-            log(f"would delete: {p}")
-            continue
-        try:
-            sz = p.stat().st_size
-            p.unlink()
-            deleted += 1
-            parent_dirs.add(p.parent)
-            log(f"deleted: {p} ({sz / 1e9:.2f} GB)")
-        except OSError as e:
-            log(f"failed: {p}: {e}")
+    qbit_remove_files: set[str] = set()
+    qbit_drop_only: set[str] = set()
 
+    for p, hardlink in to_delete:
+        if args.dry_run:
+            tag = "hardlink" if hardlink else "copy"
+            log(f"would delete ({tag}): {p}")
+            th = torrent_hash_for_path(p, qbit_index)
+            if th:
+                log(f"  qBittorrent hash: {th[:8]}…")
+            continue
+        th = torrent_hash_for_path(p, qbit_index)
+        if hardlink:
+            if th:
+                qbit_drop_only.add(th)
+            try:
+                p.unlink()
+                deleted += 1
+                parent_dirs.add(p.parent)
+                log(f"unlinked hardlink duplicate: {p}")
+            except OSError as e:
+                log(f"failed hardlink unlink {p}: {e}")
+        elif th:
+            qbit_remove_files.add(th)
+        else:
+            try:
+                sz = p.stat().st_size
+                p.unlink()
+                deleted += 1
+                parent_dirs.add(p.parent)
+                log(f"deleted orphan copy: {p} ({sz / 1e9:.2f} GB)")
+            except OSError as e:
+                log(f"failed: {p}: {e}")
+
+    if not args.dry_run:
+        drop_only = [h for h in qbit_drop_only if h not in qbit_remove_files]
+        if qbit_remove_files:
+            qbit_delete(sorted(qbit_remove_files), delete_files=True)
+            log(f"removed {len(qbit_remove_files)} torrent job(s) with files (library duplicate)")
+        if drop_only:
+            qbit_delete(drop_only, delete_files=False)
+            log(f"removed {len(drop_only)} torrent job(s) after hardlink unlink")
+
+    junk_dirs = 0
     if not args.dry_run:
         for d in sorted(parent_dirs, key=lambda x: len(x.parts), reverse=True):
             prune_empty_dirs(d)
-        # Remove leftover empty top-level release folders (non-video debris)
         for entry in list(TORRENTS.iterdir()):
-            if entry.name == "incomplete" or is_protected(entry, protected):
+            if entry.name in ("incomplete", ".reconcile-staging") or is_protected(
+                entry, protected
+            ):
                 continue
             if entry.is_dir() and not any(entry.rglob("*")):
-                if args.dry_run:
-                    continue
                 try:
                     entry.rmdir()
                     log(f"removed empty release dir: {entry.name[:80]}")
                 except OSError:
                     pass
+        junk_dirs = prune_junk_release_dirs(protected, dry_run=False)
         append_recovery_log(
-            f"torrent-library-cleanup: deleted {deleted} files (~{total_bytes / 1e9:.1f} GB)",
+            f"torrent-library-cleanup: deleted {deleted} files (~{total_bytes / 1e9:.1f} GB), "
+            f"junk_dirs={junk_dirs}",
             tag="qbit",
         )
+    else:
+        junk_dirs = prune_junk_release_dirs(protected, dry_run=True)
+        log(f"DRY-RUN: would remove {junk_dirs} junk release dir(s)")
 
     return 0
 

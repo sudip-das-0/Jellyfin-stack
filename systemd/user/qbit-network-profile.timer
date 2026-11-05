@@ -1,10 +1,10 @@
 [Unit]
-Description=Every 2 minutes — qBittorrent Wi‑Fi profile
+Description=Every 10 minutes — qBittorrent Wi‑Fi profile
 
 [Timer]
 Unit=qbit-network-profile.service
-OnBootSec=1min
-OnUnitInactiveSec=2min
+OnBootSec=2min
+OnUnitInactiveSec=10min
 Persistent=true
 
 [Install]

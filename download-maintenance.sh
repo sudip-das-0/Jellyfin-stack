@@ -37,6 +37,10 @@ maint_run() {
 
 maint_run prune-stall-logs "$DEFAULT_STEP_TIMEOUT" \
   /usr/bin/python3 "${SCRIPTS_ROOT}/prune-stall-logs.py"
+maint_run sync-manual-deletes 180 \
+  /usr/bin/python3 "${SCRIPTS_ROOT}/sync-manual-deletes.py"
+maint_run unmonitor-on-import 60 \
+  /usr/bin/python3 "${SCRIPTS_ROOT}/unmonitor-on-import.py" --drain-queue
 maint_run queue-dedupe "$DEFAULT_STEP_TIMEOUT" \
   /usr/bin/python3 "${SCRIPTS_ROOT}/queue-dedupe.py"
 maint_run torrent-stall-recovery "$DEFAULT_STEP_TIMEOUT" \
@@ -53,8 +57,13 @@ maint_run cleanup-partial-series "$DEFAULT_STEP_TIMEOUT" \
   /usr/bin/python3 "${SCRIPTS_ROOT}/cleanup-partial-series.py"
 maint_run lg-tv-topup-queue 300 \
   "${SCRIPTS_ROOT}/lg-tv-topup-queue.sh" || true
+maint_run jellyfin-episode-images 300 \
+  /usr/bin/python3 "${SCRIPTS_ROOT}/jellyfin-refresh-episode-images.py" --all-missing --limit-series 10
+maint_run jellyfin-episode-image-queue 120 \
+  "${SCRIPTS_ROOT}/jellyfin-process-episode-image-refresh.sh" || true
 if ! timeout 300 /usr/bin/python3 "${SCRIPTS_ROOT}/series-season-completeness.py"; then
-  timeout 300 /usr/bin/python3 "${SCRIPTS_ROOT}/sonarr-search-incomplete-seasons.py" || true
+  /usr/bin/python3 "${SCRIPTS_ROOT}/sonarr-prune-command-queue.py" || true
+  timeout 120 /usr/bin/python3 "${SCRIPTS_ROOT}/sonarr-queue-missing-if-due.py" || true
   maint_log "WARN: incomplete monitored TV season(s) — see ${STALL_LOG_DIR}/series-completeness.log"
 fi
 exit 0

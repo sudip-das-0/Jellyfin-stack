@@ -1,10 +1,10 @@
 [Unit]
-Description=Every 5 minutes — check stalled torrents and swap alternates
+Description=Every 30 minutes — download maintenance and stall recovery (12h stall window)
 
 [Timer]
 Unit=torrent-stall-recovery.service
-OnBootSec=3min
-OnUnitInactiveSec=5min
+OnBootSec=10min
+OnUnitInactiveSec=30min
 Persistent=true
 
 [Install]

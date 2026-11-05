@@ -6,10 +6,12 @@ Live scripts: `/mnt/jellyfin/scripts/`; import hooks in `scripts/hooks/` (mounte
 
 | Unit | Script |
 |------|--------|
-| `torrent-stall-recovery.timer` (5 min) | `download-maintenance.sh` |
+| `torrent-stall-recovery.timer` (30 min) | `download-maintenance.sh` (dedupe → stall recovery → reconcile → qBit cleanup → season completeness) |
+| `queue-missing-downloads.timer` (24 h) | `queue-missing-downloads.py` |
+| `torrent-library-dedupe.timer` (daily) | torrent duplicate cleanup |
 | `lg-tv-optimize.service` (always on) | `lg-tv-optimize-daemon.sh` → `lg-tv-process-queue.sh` (one encode at a time; AV1: 3× HW then CPU fallback; max **4** failures → dead-letter) |
 | `lg-tv-new-media-watch.service` | `lg-tv-watch-new-media.sh` |
-| `download-activity-log.timer` (5 min) | `download-activity-log.sh` |
+| `download-activity-log.timer` (15 min) | `download-activity-log.sh` |
 | `qbit-network-profile.timer` (2 min) | `apply-qbit-network-profile.py` (Wi‑Fi SSID → qBit limits) |
 | `media-stack.service` (boot) | `docker compose up -d` |
 

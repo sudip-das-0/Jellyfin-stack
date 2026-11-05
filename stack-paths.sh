@@ -25,3 +25,11 @@ export LG_TV_HW_DECODE="${LG_TV_HW_DECODE:-1}"
 export LG_TV_AV1_QSV="${LG_TV_AV1_QSV:-1}"
 # AV1: try HW tiers LG_TV_AV1_HW_ATTEMPTS times (re-queue on fail), then allow libx264 on next run.
 export LG_TV_AV1_HW_ATTEMPTS="${LG_TV_AV1_HW_ATTEMPTS:-3}"
+# Transcode cap (~15 Mbps) for H.264 output when shrinking heavy files.
+export LG_TV_MAXRATE="${LG_TV_MAXRATE:-15M}"
+export LG_TV_BUFSIZE="${LG_TV_BUFSIZE:-30M}"
+export LG_TV_TARGET_VBITRATE_BPS="${LG_TV_TARGET_VBITRATE_BPS:-15000000}"
+# Skip optimize when file is LG-friendly and at/below this storage rate (GiB per hour of runtime).
+export LG_TV_MAX_GIB_PER_HOUR="${LG_TV_MAX_GIB_PER_HOUR:-3.5}"
+# H.264 above LG_TV_MAX_GIB_PER_HOUR uses HW transcode (not -c:v copy) when LG_TV_H264_SHRINK=1.
+export LG_TV_H264_SHRINK="${LG_TV_H264_SHRINK:-1}"

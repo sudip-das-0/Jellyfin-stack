@@ -121,6 +121,45 @@ elif [[ -d /home/devdas/arr/scripts ]]; then
 else
   warn "missing /home/devdas/arr/scripts symlink (ln -sfn $DIR /home/devdas/arr/scripts)"
 fi
+if [[ -L /home/devdas/jellyfin-drive ]]; then
+  jf_target=$(readlink -f /home/devdas/jellyfin-drive)
+  [[ "$jf_target" == "/mnt/jellyfin" ]] && ok "jellyfin-drive → /mnt/jellyfin" \
+    || warn "jellyfin-drive → $jf_target (expected /mnt/jellyfin)"
+elif [[ -e /home/devdas/jellyfin-drive ]]; then
+  warn "/home/devdas/jellyfin-drive is not a symlink (expected → /mnt/jellyfin)"
+fi
+if findmnt -T /mnt/jellyfin >/dev/null 2>&1; then
+  msrc=$(findmnt -T /mnt/jellyfin -no SOURCE)
+  ok "/mnt/jellyfin mounted ($msrc)"
+  touch /mnt/jellyfin/logs/.stack-verify-write-test 2>/dev/null \
+    && rm -f /mnt/jellyfin/logs/.stack-verify-write-test \
+    && ok "/mnt/jellyfin writable" \
+    || warn "/mnt/jellyfin not writable"
+else
+  warn "/mnt/jellyfin is not mounted (stack expects SSD at this path after migrate-hdd-to-ssd.sh)"
+fi
+if docker inspect jellyfin --format '{{range .Mounts}}{{.Source}}:{{.Destination}} {{end}}' 2>/dev/null | grep -q '/mnt/jellyfin/media:/media'; then
+  ok "Jellyfin container media → /mnt/jellyfin/media"
+else
+  warn "Jellyfin media mount does not look like /mnt/jellyfin/media"
+fi
+if docker inspect sonarr --format '{{range .Mounts}}{{.Source}}:{{.Destination}} {{end}}' 2>/dev/null | grep -q '/mnt/jellyfin:/data'; then
+  ok "Sonarr container /data → /mnt/jellyfin"
+else
+  warn "Sonarr /data mount does not look like /mnt/jellyfin"
+fi
+stale_sysd=$(grep -rl 'jellyfin-hdd\|jellyfin-ssd' "${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user" 2>/dev/null | head -3 || true)
+if [[ -n "$stale_sysd" ]]; then
+  warn "systemd user units still reference old mount names: $stale_sysd"
+else
+  ok "systemd user units use live /mnt/jellyfin paths"
+fi
+if [[ -f /mnt/jellyfin/jellyfin/config/data/jellyfin.db ]]; then
+  stale_db=$(sqlite3 /mnt/jellyfin/jellyfin/config/data/jellyfin.db \
+    "SELECT COUNT(*) FROM BaseItems WHERE Path LIKE '%jellyfin-hdd%' OR Path LIKE '%jellyfin-ssd%';" 2>/dev/null || echo 0)
+  [[ "${stale_db:-0}" == 0 ]] && ok "jellyfin.db library paths on live mount" \
+    || warn "jellyfin.db has $stale_db item path(s) still pointing at old mount names"
+fi
 need_exec "$DIR/lg-tv-process-queue.sh"
 need_exec "$DIR/lg-tv-optimize-daemon.sh"
 need_exec "$DIR/lg-tv-optimize-media.sh"

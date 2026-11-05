@@ -13,7 +13,18 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from arr_common import SONARR_CONFIG, SONARR_URL, STALL_LOG_DIR, arr_json, iter_incomplete_seasons, read_api_key
 
 STATE = STALL_LOG_DIR / "sonarr-missing-search.json"
-MIN_INTERVAL = int(os.environ.get("SONARR_MISSING_SEARCH_HOURS", "12")) * 3600
+def _season_search_cooldown_hours() -> int:
+    raw = os.environ.get("SONARR_SEASON_SEARCH_COOLDOWN_HOURS") or os.environ.get(
+        "SONARR_MISSING_SEARCH_HOURS", "12"
+    )
+    return int(raw)
+
+
+MIN_INTERVAL = _season_search_cooldown_hours() * 3600
+
+
+def _max_per_run() -> int:
+    return max(0, int(os.environ.get("SONARR_MAX_SEASON_SEARCH_PER_RUN", "1")))
 
 
 def load_state() -> dict[str, float]:
@@ -30,8 +41,14 @@ def main() -> int:
     state = load_state()
     now = time.time()
     triggered = 0
+    cap = _max_per_run()
+    if cap == 0:
+        print("skip: SONARR_MAX_SEASON_SEARCH_PER_RUN=0")
+        return 0
 
     for title, sid, sn, have, total in iter_incomplete_seasons(api_key, partial_only=False):
+        if triggered >= cap:
+            break
         key = f"{sid}:s{sn}"
         if now - state.get(key, 0) < MIN_INTERVAL:
             continue

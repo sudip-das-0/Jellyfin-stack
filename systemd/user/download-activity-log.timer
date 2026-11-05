@@ -1,10 +1,10 @@
 [Unit]
-Description=Every 5 minutes — download activity log on /mnt/jellyfin
+Description=Every 15 minutes — download activity log on /mnt/jellyfin
 
 [Timer]
 Unit=download-activity-log.service
-OnBootSec=2min
-OnUnitInactiveSec=5min
+OnBootSec=5min
+OnUnitInactiveSec=15min
 Persistent=true
 
 [Install]

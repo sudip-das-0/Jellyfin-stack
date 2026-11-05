@@ -1,0 +1,13 @@
+[Unit]
+Description=Jellyfin delete → Sonarr/Radarr sync webhook
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /mnt/jellyfin/scripts/jellyfin-delete-webhook.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

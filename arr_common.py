@@ -19,7 +19,13 @@ HOOKS_DIR = SCRIPTS_ROOT / "hooks"
 ARR_ROOT = CONFIG_ROOT  # *arr Docker config on SSD
 LOG_ROOT = Path("/mnt/jellyfin/logs")
 STALL_LOG_DIR = LOG_ROOT / "stall-recovery"
+# Shared by queue-dedupe.py (reset on trim) and torrent-stall-recovery.py (stall jobs).
+STALL_RECOVERY_STATE_PATH = STALL_LOG_DIR / "state.json"
 LG_TV_DIR = LOG_ROOT / "lg-tv"
+# qBittorrent states that use a max-active-download slot (see config/qbit-network-profiles.json).
+QBIT_ACTIVE_DOWNLOAD_STATES = frozenset(
+    {"downloading", "metaDL", "forcedDL", "stalledDL", "checkingDL"}
+)
 SONARR_CONFIG = ARR_ROOT / "config/sonarr/config.xml"
 RADARR_CONFIG = ARR_ROOT / "config/radarr/config.xml"
 SONARR_URL = os.environ.get("SONARR_URL", "http://127.0.0.1:8989")
@@ -57,6 +63,33 @@ def arr_json(
 
 def norm_qbit_hash(h: str) -> str:
     return h.upper()
+
+
+def holds_active_qbit_download_slot(t: dict) -> bool:
+    """True when torrent holds one of qBit's max-active-download slots (not queued/waiting)."""
+    return (t.get("state") or "") in QBIT_ACTIVE_DOWNLOAD_STATES
+
+
+def wanted_missing_count(base_url: str, api_key: str) -> int:
+    q = arr_json(f"{base_url}/api/v3/wanted/missing?pageSize=1", api_key)
+    if isinstance(q, dict):
+        return int(q.get("totalRecords") or 0)
+    return 0
+
+
+def queue_arr_command(base_url: str, api_key: str, name: str, **body_fields: object) -> dict:
+    """POST /api/v3/command; returns the command object."""
+    body = {"name": name, **body_fields}
+    result = arr_json(f"{base_url}/api/v3/command", api_key, method="POST", body=body)
+    return result if isinstance(result, dict) else {}
+
+
+def append_script_log(log_path: Path, msg: str, *, rotate: bool = True) -> None:
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    if rotate:
+        rotate_log_file(log_path)
+    with log_path.open("a", encoding="utf-8") as f:
+        f.write(msg + "\n")
 
 
 def qbit_torrents() -> list[dict]:

@@ -1,6 +1,6 @@
 # Media stack (git repo on `/mnt/jellyfin/scripts`)
 
-Docker *arr apps + Jellyfin. **Scripts, compose, docs, and systemd templates** live on the jellyfin drive (this repo). **Runtime Docker configs** stay on the internal SSD at `/home/devdas/arr/config/` (not in git). **Logs** are under `/mnt/jellyfin/logs/` (not in git).
+Docker *arr apps + Jellyfin. **Scripts, compose, docs, and systemd templates** live on the 2TB library SSD at `/mnt/jellyfin/scripts/` (this repo). **Runtime Docker configs** stay on the internal NVMe at `/home/devdas/arr/config/` (not in git). **Logs** are under `/mnt/jellyfin/logs/` (not in git). Legacy HDD copy: `/mnt/jellyfin-hdd` (read-only archive after `migrate-hdd-to-ssd.sh finish`).
 
 ## Layout
 
@@ -30,7 +30,7 @@ Start: `systemctl --user start media-stack.service` or `cd /mnt/jellyfin/scripts
 
 | Unit | Role |
 |------|------|
-| `torrent-stall-recovery.timer` | Every 5 min → `download-maintenance.sh` |
+| `torrent-stall-recovery.timer` | Every 30 min → `download-maintenance.sh` (12h stall window) |
 | `lg-tv-optimize.service` | Continuous LG remux queue (`lg-tv-optimize-daemon.sh`, **no gap** between jobs) |
 | `lg-tv-new-media-watch.service` | Queue new imports for LG optimize |
 | `download-activity-log.timer` | Snapshot queues to `/mnt/jellyfin/logs/downloads/` |
@@ -51,6 +51,7 @@ Re-queue media that missed LG optimize: `./lg-tv-queue-unoptimized.sh` (after sc
 |--------|------|
 | `hooks/import-sidecar-subs.sh` | **On import** — episode-matched release `.srt` → `{video}.eng.srt` (canonical copy in `hooks/`) |
 | `repair-sidecars-from-torrents.py` | Fix missing/wrong `.eng.srt` from files still under `/mnt/jellyfin/torrents` |
+| `jellyfin-refresh-episode-images.py` | TMDB/screen-grab episode Primary when missing (stops duplicate series poster in episode grids) |
 | `apply-media-language-policy.sh --full` | Library normalize + repair + Bazarr backfill + LG queue for missing subs |
 | `audit-subtitle-sidecars.py` / `sync-subtitle-sidecars.py` | Audit timing; alass sync for flagged items |
 
@@ -58,22 +59,42 @@ Host helper (optional): `import-sidecar-from-release.py` + `sidecar_release.py` 
 
 Optional instant qBit profile on Wi‑Fi change: install `hooks/qbit-network-profile-dispatcher.sh` under NetworkManager (see comments in that file).
 
+## Jellyfin UI delete (no re-downloads)
+
+Deleting in **Jellyfin** only sticks if the file is removed from disk and Sonarr/Radarr stop monitoring the title.
+
+1. When deleting in Jellyfin, enable **Delete from server** (removes the file under `/mnt/jellyfin/media`).
+2. Run once: `./apply-jellyfin-ui-delete-sync.sh` — Webhook plugin (ItemDeleted) → local listener → `sync-manual-deletes.py`; Sonarr/Radarr **file-delete** custom scripts as backup.
+3. **Every 30 min**, `download-maintenance.sh` also runs `sync-manual-deletes.py` for anything missed.
+
+Permanent removal from the *arr apps (with blocklist): still use Sonarr/Radarr **Delete series/movie** with delete files + exclusion.
+
+## Unmonitor completed imports
+
+After Sonarr/Radarr finish importing, episodes/movies are **unmonitored** so they are not re-grabbed. Apply once: `./apply-unmonitor-completed-policy.sh` (Sonarr **Auto unmonitor previously downloaded episodes**, Radarr **movies** equivalent, plus **On Import** hooks). Optional backfill for titles already on disk (TV + movies): `UNMONITOR_BACKFILL=1 ./apply-unmonitor-completed-policy.sh`.
+
 ## Maintenance chain (`download-maintenance.sh`)
 
 1. `prune-stall-logs.py` — rotate/trim logs (14-day `recovery-*.log`, tail LG optimize log)
-2. `queue-dedupe.py` — one torrent per episode/movie
-3. `torrent-stall-recovery.py` — 1h stall → 2 alternates → fail + blocklist
-4. `reconcile-torrents-library.py` — drop torrent copies already in `media/`; import orphans (staging rename for anime); queue LG + sidecars (`RECONCILE_IMPORT_LIMIT` per run, default 15)
-5. `cleanup-qbit-missing.py` — `missingFiles` / dead 0-seed torrents
-6. `cleanup-qbit-completed.py` — remove finished torrents (no seeding; 2h post-complete grace via `QBIT_COMPLETED_PROTECT_SEC`)
-7. `cleanup-partial-series.py` — Sonarr + Radarr bad queue rows; orphan torrent dirs
-7. `series-season-completeness.py` — warns on partial seasons (exit 1 → season search, maintenance still **exit 0**)
+2. `sync-manual-deletes.py` — unmonitor titles removed from disk (Jellyfin UI / manual deletes)
+3. `unmonitor-on-import.py --drain-queue` — unmonitor episodes/movies after import (backstop for hooks)
+4. `queue-dedupe.py` — one torrent per episode/movie (updates shared `stall-recovery/state.json` on trim)
+5. `torrent-stall-recovery.py` — 12h stall **in active qBit slot** → 2 alternates → fail + blocklist
+6. `sonarr-prune-command-queue.py` — cap queued `SeasonSearch` commands so imports can run
+7. `reconcile-torrents-library.py` — drop torrent copies already in `media/`; import orphans; LG + sidecars (`RECONCILE_IMPORT_LIMIT`, default 15)
+8. `cleanup-qbit-missing.py` — `missingFiles` / dead 0-seed torrents
+9. `cleanup-qbit-completed.py` — remove finished torrents (2h post-complete grace via `QBIT_COMPLETED_PROTECT_SEC`)
+10. `cleanup-partial-series.py` — Sonarr + Radarr bad queue rows; orphan torrent dirs
+11. `lg-tv-topup-queue.sh` — enqueue library files missing from LG optimize queue
+12. `series-season-completeness.py` — exit 1 on partial monitored seasons → `sonarr-queue-missing-if-due.py` (MissingEpisodeSearch, 6h cooldown; manual per-season: `sonarr-search-incomplete-seasons.py`, max `SONARR_MAX_SEASON_SEARCH_PER_RUN` per run)
+
+Manual missing search: `queue-missing-downloads.py` (`--tv-only` / `--movies-only`). Failed grabs: `retry-failed-downloads.py` (same flags; clears blocklist unless `--keep-blocklist`).
+
+Shared Python: `arr_common.py` (`fetch_arr_queue`, `STALL_RECOVERY_STATE_PATH`, `QBIT_ACTIVE_DOWNLOAD_STATES`) · Bash paths: `stack-paths.sh`
 
 Optional one-off: `./cleanup-partial-series.py --torrent-library [--dry-run]` — drop torrent copies already in `media/` (not on the timer).
 
 Download policy (re-apply after stack reset): `./apply-no-seed-download-policy.sh`
-
-Shared Python: `arr_common.py` · Bash paths: `stack-paths.sh`
 
 ## LG TV direct-play pipeline
 

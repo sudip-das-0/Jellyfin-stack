@@ -16,23 +16,26 @@ Technical setup reference: [`jellyfin-media-stack-setup.md`](jellyfin-media-stac
 
 After import, Sonarr/Radarr **remove** the torrent from qBittorrent (**no seeding**). Media stays on disk via **hardlinks** in `/mnt/jellyfin/media`.
 
-**Orphan reconcile (every 5 min):** `reconcile-torrents-library.py` runs before qBit completed cleanup — removes torrent-side **duplicates**, **imports** completed orphans (anime staging renames), queues **LG optimize**. Completed torrents stay in qBit up to **`QBIT_COMPLETED_PROTECT_SEC`** (default 2 h) so import can finish first.
+**Orphan reconcile (every 30 min):** `reconcile-torrents-library.py` runs before qBit completed cleanup — removes torrent-side **duplicates**, **imports** completed orphans (anime staging renames), queues **LG optimize**. Completed torrents stay in qBit up to **`QBIT_COMPLETED_PROTECT_SEC`** (default 2 h) so import can finish first.
 
-**Missing library (every 24 h):** `queue-missing-downloads.timer` → `MissingEpisodeSearch` + `MissingMoviesSearch` (Wanted → Missing). Log: `stall-recovery/queue-missing-downloads.log`. Manual: `python3 /mnt/jellyfin/scripts/queue-missing-downloads.py`.
+**Missing library (every 24 h):** `queue-missing-downloads.timer` → `MissingEpisodeSearch` + `MissingMoviesSearch` (Wanted → Missing). Log: `stall-recovery/queue-missing-downloads.log`. Manual: `python3 /mnt/jellyfin/scripts/queue-missing-downloads.py` (add `--tv-only` or `--movies-only` to run one app).
 
 ---
 
-## qBittorrent limits (global)
+## qBittorrent limits
 
-| Rule | Value | Notes |
-|------|--------|--------|
-| Max **download** speed | **50 Mbps** (~6 250 000 B/s) | Global cap in qBittorrent |
-| Max **upload** speed | **100 KiB/s** | Cap if any torrent still uploads briefly before removal |
-| Max **active downloads** | **100** | How many torrents download at once (home Wi‑Fi profile) |
-| Max **active torrents** | **120** | Concurrent jobs in client (completed jobs are removed) |
-| **Seeding** | **Off** | `max_ratio=0`, 1 min max seed time; completed torrents removed |
+Applied by `apply-qbit-network-profile.py` from `config/qbit-network-profiles.json` (SSID → profile).
 
-Change in Web UI: **http://192.168.0.175:8080** (or your LAN IP) → Tools → Options → Speed, or via API (see setup doc).
+| Rule | Home Wi‑Fi (`home`) | Hotspot (`oneplus_hotspot`) |
+|------|---------------------|-----------------------------|
+| Max **download** speed | **~50 Mbps** (`6249472` B/s) | Unlimited (`0`) |
+| Max **active downloads** | **50** | **100** |
+| Max **active torrents** | **70** | **120** |
+| **Seeding** | **Off** | **Off** (`max_ratio=0`; *arr removes after import) |
+
+Stall recovery only counts the **12 h no-progress** window while a torrent is in an **active download slot** (not queued for one of the 50 home-Wi‑Fi slots).
+
+Change in Web UI: **http://192.168.0.175:8080** (or your LAN IP) → Tools → Options → Speed, or edit `config/qbit-network-profiles.json`.
 
 ---
 
@@ -40,7 +43,7 @@ Change in Web UI: **http://192.168.0.175:8080** (or your LAN IP) → Tools → O
 
 **Goal:** Never run multiple swarms for the same Sonarr episode or Radarr movie unless stall recovery explicitly adds alternates.
 
-Every **5 minutes**, `queue-dedupe.py` runs first:
+Every **30 minutes** (maintenance timer), `queue-dedupe.py` runs first:
 
 | Situation | Action |
 |-----------|--------|
@@ -60,14 +63,14 @@ Runs immediately after dedupe in `download-maintenance.sh`.
 
 | Step | Rule |
 |------|------|
-| 1 | If that torrent has **no progress for 1 hour**, Sonarr/Radarr search for **two** alternate releases (highest **seeders** first). The stalled torrent is removed from qBittorrent. |
+| 1 | If that torrent has **no progress for 12 hours while it holds an active download slot** (downloading / metaDL / forcedDL / stalledDL / checkingDL — i.e. one of qBit’s max-active downloads, not **queued** waiting for a slot), Sonarr/Radarr search for **two** alternate releases (highest **seeders** first). The stalled torrent is removed from qBittorrent. |
 | 2 | While two alternates are active: if **one** is healthy (downloading / progressing), **remove all other** torrents for that item and keep the winner. |
-| 3 | If **both** alternates have no progress for **1 hour**, delete both, **blocklist** the grabs, and mark the queue item **failed** (`skipRedownload` — no endless retry loop). |
+| 3 | If **both** alternates have no progress for **12 hours in active slots**, delete both, **blocklist** the grabs, and mark the queue item **failed** (`skipRedownload` — no endless retry loop). |
 
 **Does not run** if more than one torrent is still attached to the same episode/movie (dedupe must run first).
 
-**Timer:** `torrent-stall-recovery.timer` (every 5 min) → `download-maintenance.sh`  
-**Override stall time:** set `STALL_SECONDS=3600` on the systemd service if you change the 1 h window.
+**Timer:** `torrent-stall-recovery.timer` (every 30 min) → `download-maintenance.sh`  
+**Stall window:** `STALL_SECONDS=43200` (12 h) on `torrent-stall-recovery.service` (override there if needed).
 
 ---
 
@@ -103,17 +106,20 @@ Runs immediately after dedupe in `download-maintenance.sh`.
 
 | Unit | Interval |
 |------|----------|
-| `torrent-stall-recovery.timer` | 5 min — dedupe, stall recovery, partial cleanup, completeness |
+| `torrent-stall-recovery.timer` | 30 min — full `download-maintenance.sh` chain (see README) |
+| `queue-missing-downloads.timer` | 24 h — missing episode/movie search |
+| `download-activity-log.timer` | 15 min — queue snapshots |
+| `qbit-network-profile.timer` | 2 min — SSID → qBit limits |
 | `lg-tv-optimize.service` | always on — continuous LG TV queue worker (timer disabled) |
 | `lg-tv-new-media-watch.service` | always — detect new files |
 | `media-stack.service` | boot — `docker compose up -d` |
 
-**Incomplete seasons:** maintenance exits with error and, at most once per **12 h** per season, runs `sonarr-search-incomplete-seasons.py` (SeasonSearch).
+**Incomplete seasons:** maintenance runs `series-season-completeness.py`; on partial seasons it triggers `sonarr-search-incomplete-seasons.py` (SeasonSearch, at most once per **12 h** per season — set `SONARR_SEASON_SEARCH_COOLDOWN_HOURS=0` to bypass).
 
 **Logs:** `/mnt/jellyfin/logs/stall-recovery/lg-tv-optimize.log`  
-**Queue:** `/mnt/jellyfin/logs/lg-tv-optimize.queue`  
-**Dead letter (failed 3×):** `/mnt/jellyfin/logs/lg-tv-optimize.deadletter.log`  
-**Retry counts:** `/mnt/jellyfin/logs/lg-tv-optimize.retries.tsv`
+**Queue:** `/mnt/jellyfin/logs/lg-tv/optimize.queue`  
+**Dead letter (failed 3×):** `/mnt/jellyfin/logs/lg-tv/optimize.deadletter.log`  
+**Retry counts:** `/mnt/jellyfin/logs/lg-tv/optimize.retries.tsv`
 
 **Subtitles (server default):** User **Dimpu** → subtitles **Always on** (English). Order: (1) on import, copy the release `.srt` whose **SxxExx** matches the episode (Vyndros-style names OK), (2) extract embedded subs to `.eng.srt` before LG TV remux, (3) **Bazarr** (OpenSubtitles.com + free providers) on webhooks + 6 h wanted search, plus `repair-sidecars-from-torrents.py` for gaps. Jellyfin plays external `.eng.srt`; the **Open Subtitles** plugin (`apply-jellyfin-opensubtitles.sh`) enables manual “Search subtitles” in the player (same OS.com account; shares the free daily quota with Bazarr).
 
@@ -125,7 +131,7 @@ Runs immediately after dedupe in `download-maintenance.sh`.
 
 | Log | Location |
 |-----|----------|
-| Download activity snapshot (every 5 min) | `/mnt/jellyfin/logs/downloads/download-YYYY-MM-DD.log` |
+| Download activity snapshot (every 15 min) | `/mnt/jellyfin/logs/downloads/download-YYYY-MM-DD.log` |
 | Dedupe + stall recovery | `/mnt/jellyfin/logs/stall-recovery/recovery-YYYY-MM-DD.log` |
 | Stall state machine | `/mnt/jellyfin/logs/stall-recovery/state.json` |
 | Sonarr / Radarr / qBittorrent service logs | `/mnt/jellyfin/logs/sonarr`, `radarr`, `qbittorrent` |
@@ -178,4 +184,4 @@ curl -s -u Dimpu:adminadmin http://127.0.0.1:8080/api/v2/app/preferences | \
 
 ---
 
-*Last updated: 2026-10-03*
+*Last updated: 2026-11-03*

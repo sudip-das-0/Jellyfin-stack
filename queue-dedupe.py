@@ -17,6 +17,7 @@ from arr_common import (
     SONARR_CONFIG,
     SONARR_URL,
     STALL_LOG_DIR,
+    STALL_RECOVERY_STATE_PATH,
     arr_queue_remove,
     fetch_arr_queue,
     norm_qbit_hash,
@@ -28,7 +29,7 @@ from arr_common import (
 TZ = ZoneInfo("Asia/Kolkata")
 LOG_DIR = STALL_LOG_DIR
 DEDUPE_VERBOSE = os.environ.get("DEDUPE_VERBOSE", "") == "1"
-STATE_PATH = LOG_DIR / "state.json"
+STATE_PATH = STALL_RECOVERY_STATE_PATH
 ORPHAN_QUEUE_HOURS = 6
 
 

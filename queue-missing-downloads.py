@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Queue indexer searches for all monitored missing episodes/movies (Sonarr + Radarr)."""
+"""Queue indexer searches for monitored missing episodes/movies (Sonarr + Radarr)."""
 from __future__ import annotations
 
+import argparse
 import sys
 import urllib.error
 from pathlib import Path
@@ -13,63 +14,68 @@ from arr_common import (
     SONARR_CONFIG,
     SONARR_URL,
     STALL_LOG_DIR,
-    arr_json,
+    append_script_log,
+    queue_arr_command,
     read_api_key,
-    rotate_log_file,
+    wanted_missing_count,
 )
 
 LOG = STALL_LOG_DIR / "queue-missing-downloads.log"
 
 
 def log(msg: str) -> None:
-    STALL_LOG_DIR.mkdir(parents=True, exist_ok=True)
-    rotate_log_file(LOG)
-    with LOG.open("a", encoding="utf-8") as f:
-        f.write(msg + "\n")
+    append_script_log(LOG, msg)
     print(msg)
 
 
-def missing_count(base_url: str, api_key: str, *, tv: bool) -> int:
-    path = "wanted/missing" if tv else "wanted/missing"
-    q = arr_json(f"{base_url}/api/v3/{path}?pageSize=1", api_key)
-    if isinstance(q, dict):
-        return int(q.get("totalRecords") or 0)
-    return 0
+def parse_args() -> argparse.Namespace:
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument(
+        "--tv-only",
+        action="store_true",
+        help="Sonarr MissingEpisodeSearch only (skip Radarr)",
+    )
+    p.add_argument(
+        "--movies-only",
+        action="store_true",
+        help="Radarr MissingMoviesSearch only (skip Sonarr)",
+    )
+    return p.parse_args()
 
 
 def main() -> int:
+    args = parse_args()
+    if args.tv_only and args.movies_only:
+        print("Use at most one of --tv-only and --movies-only", file=sys.stderr)
+        return 2
+
+    run_sonarr = not args.movies_only
+    run_radarr = not args.tv_only
+
     sonarr_key = read_api_key(SONARR_CONFIG)
     radarr_key = read_api_key(RADARR_CONFIG)
 
-    sonarr_missing = missing_count(SONARR_URL, sonarr_key, tv=True)
-    radarr_missing = missing_count(RADARR_URL, radarr_key, tv=False)
-    log(f"before: sonarr_missing={sonarr_missing} radarr_missing={radarr_missing}")
+    if run_sonarr:
+        sonarr_missing = wanted_missing_count(SONARR_URL, sonarr_key)
+        log(f"before: sonarr_missing={sonarr_missing}")
+        sonarr_cmd = queue_arr_command(SONARR_URL, sonarr_key, "MissingEpisodeSearch")
+        log(
+            f"Sonarr MissingEpisodeSearch command id={sonarr_cmd.get('id')} "
+            f"status={sonarr_cmd.get('status')}"
+        )
 
-    sonarr_cmd = arr_json(
-        f"{SONARR_URL}/api/v3/command",
-        sonarr_key,
-        method="POST",
-        body={"name": "MissingEpisodeSearch"},
-    )
-    log(
-        f"Sonarr MissingEpisodeSearch command id={sonarr_cmd.get('id')} "
-        f"status={sonarr_cmd.get('status')}"
-    )
-
-    radarr_cmd = arr_json(
-        f"{RADARR_URL}/api/v3/command",
-        radarr_key,
-        method="POST",
-        body={"name": "MissingMoviesSearch"},
-    )
-    log(
-        f"Radarr MissingMoviesSearch command id={radarr_cmd.get('id')} "
-        f"status={radarr_cmd.get('status')}"
-    )
+    if run_radarr:
+        radarr_missing = wanted_missing_count(RADARR_URL, radarr_key)
+        log(f"before: radarr_missing={radarr_missing}")
+        radarr_cmd = queue_arr_command(RADARR_URL, radarr_key, "MissingMoviesSearch")
+        log(
+            f"Radarr MissingMoviesSearch command id={radarr_cmd.get('id')} "
+            f"status={radarr_cmd.get('status')}"
+        )
 
     log(
         "Grabs appear in Sonarr/Radarr Activity → Queue, then qBittorrent "
-        "(max 30 concurrent downloads on home Wi‑Fi)."
+        "(max 50 concurrent downloads on home Wi‑Fi; see config/qbit-network-profiles.json)."
     )
     return 0
 

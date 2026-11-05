@@ -2,6 +2,7 @@
 """Re-search Sonarr/Radarr for failed grabs and missing monitored media."""
 from __future__ import annotations
 
+import argparse
 import sys
 import urllib.error
 from pathlib import Path
@@ -13,9 +14,10 @@ from arr_common import (
     SONARR_CONFIG,
     SONARR_URL,
     STALL_LOG_DIR,
+    append_script_log,
     arr_json,
+    queue_arr_command,
     read_api_key,
-    rotate_log_file,
 )
 
 LOG = STALL_LOG_DIR / "retry-failed-downloads.log"
@@ -23,11 +25,20 @@ SONARR_DOWNLOAD_FAILED = 4
 
 
 def log(msg: str) -> None:
-    STALL_LOG_DIR.mkdir(parents=True, exist_ok=True)
-    rotate_log_file(LOG)
-    with LOG.open("a", encoding="utf-8") as f:
-        f.write(msg + "\n")
+    append_script_log(LOG, msg)
     print(msg)
+
+
+def parse_args() -> argparse.Namespace:
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument("--tv-only", action="store_true", help="Skip Radarr")
+    p.add_argument("--movies-only", action="store_true", help="Skip Sonarr")
+    p.add_argument(
+        "--keep-blocklist",
+        action="store_true",
+        help="Do not clear Sonarr/Radarr blocklists before re-search",
+    )
+    return p.parse_args()
 
 
 def paginate_history(base_url: str, api_key: str, *, event_type: int) -> list[dict]:
@@ -90,39 +101,42 @@ def sonarr_failed_episode_ids(api_key: str) -> set[int]:
 
 
 def main() -> int:
+    args = parse_args()
+    if args.tv_only and args.movies_only:
+        print("Use at most one of --tv-only and --movies-only", file=sys.stderr)
+        return 2
+
+    run_sonarr = not args.movies_only
+    run_radarr = not args.tv_only
+
     sonarr_key = read_api_key(SONARR_CONFIG)
     radarr_key = read_api_key(RADARR_CONFIG)
 
-    clear_blocklist(SONARR_URL, sonarr_key, "Sonarr")
-    clear_blocklist(RADARR_URL, radarr_key, "Radarr")
+    if not args.keep_blocklist:
+        if run_sonarr:
+            clear_blocklist(SONARR_URL, sonarr_key, "Sonarr")
+        if run_radarr:
+            clear_blocklist(RADARR_URL, radarr_key, "Radarr")
 
-    failed_eps = sonarr_failed_episode_ids(sonarr_key)
-    if failed_eps:
-        arr_json(
-            f"{SONARR_URL}/api/v3/command",
-            sonarr_key,
-            method="POST",
-            body={"name": "EpisodeSearch", "episodeIds": sorted(failed_eps)},
-        )
-        log(f"Sonarr EpisodeSearch for {len(failed_eps)} failed episode(s): {sorted(failed_eps)}")
-    else:
-        log("Sonarr: no downloadFailed episodes in history")
+    if run_sonarr:
+        failed_eps = sonarr_failed_episode_ids(sonarr_key)
+        if failed_eps:
+            queue_arr_command(
+                SONARR_URL,
+                sonarr_key,
+                "EpisodeSearch",
+                episodeIds=sorted(failed_eps),
+            )
+            log(f"Sonarr EpisodeSearch for {len(failed_eps)} failed episode(s): {sorted(failed_eps)}")
+        else:
+            log("Sonarr: no downloadFailed episodes in history")
 
-    arr_json(
-        f"{SONARR_URL}/api/v3/command",
-        sonarr_key,
-        method="POST",
-        body={"name": "MissingEpisodeSearch"},
-    )
-    log("Sonarr MissingEpisodeSearch queued")
+        queue_arr_command(SONARR_URL, sonarr_key, "MissingEpisodeSearch")
+        log("Sonarr MissingEpisodeSearch queued")
 
-    arr_json(
-        f"{RADARR_URL}/api/v3/command",
-        radarr_key,
-        method="POST",
-        body={"name": "MissingMoviesSearch"},
-    )
-    log("Radarr MissingMoviesSearch queued")
+    if run_radarr:
+        queue_arr_command(RADARR_URL, radarr_key, "MissingMoviesSearch")
+        log("Radarr MissingMoviesSearch queued")
 
     return 0
 

@@ -3,8 +3,8 @@
   "profiles": {
     "home": {
       "dl_limit": 6249472,
-      "max_active_downloads": 30,
-      "max_active_torrents": 45
+      "max_active_downloads": 50,
+      "max_active_torrents": 70
     },
     "oneplus_hotspot": {
       "dl_limit": 0,

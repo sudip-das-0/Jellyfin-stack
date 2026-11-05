@@ -20,7 +20,9 @@ def main() -> int:
     queued = [
         c
         for c in cmds
-        if c.get("name") == "SeasonSearch" and c.get("status") == "queued" and c.get("id")
+        if c.get("name") == "SeasonSearch"
+        and c.get("status") in ("queued", "orphaned")
+        and c.get("id")
     ]
     if len(queued) <= KEEP:
         return 0

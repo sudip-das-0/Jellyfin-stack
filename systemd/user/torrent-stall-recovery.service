@@ -5,4 +5,5 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
+Environment=STALL_SECONDS=43200
 ExecStart=/mnt/jellyfin/scripts/download-maintenance.sh

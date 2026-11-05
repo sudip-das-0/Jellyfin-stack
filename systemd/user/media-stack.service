@@ -1,8 +1,9 @@
 [Unit]
 Description=Jellyfin and *arr Docker stack
 Documentation=file:///mnt/jellyfin/scripts/docker-compose.yml
-After=docker.service network-online.target
+After=docker.service network-online.target mnt-jellyfin.mount
 Wants=network-online.target
+RequiresMountsFor=/mnt/jellyfin
 
 [Service]
 Type=oneshot

@@ -1,4 +1,5 @@
-# Arr stack — Docker configs on internal SSD; all media on /mnt/jellyfin (2TB, ext4).
+# Arr stack — Docker configs on internal NVMe; library on /mnt/jellyfin (2TB jellyfin-ssd, ext4).
+# Legacy HDD (read-only archive): /mnt/jellyfin-hdd after migrate-hdd-to-ssd.sh finish.
 # Git repo + operator docs: /mnt/jellyfin/scripts/README.md
 # Docker configs (not in git): /home/devdas/arr/config/
 # Backup copy: docs/jellyfin-docker-compose.yml.backup
