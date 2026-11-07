@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Remux/transcode media for LG WebOS Jellyfin: H.264 + stereo AAC, no embedded subs.
 # Video: Intel QSV/VAAPI decode+encode first; libx264 last. Target LG_TV_MAXRATE (default 15M).
-# Storage: skip when <= LG_TV_MAX_GIB_PER_HOUR (default 3.5 GiB/h); shrink/transcode above that.
+# Storage: skip when <= LG_TV_MAX_GIB_PER_HOUR (default 5 GiB/h); shrink/transcode above that.
 # H.264 above target GiB/h: HW transcode when LG_TV_H264_SHRINK=1; else remux copy only when under target.
 # AV1: all HW tiers first; libx264 only when LG_TV_AV1_ALLOW_CPU=1 (after LG_TV_AV1_HW_ATTEMPTS queue failures).
 # LG_TV_HW_DECODE=0 disables HW decode on H.264 remux. LG_TV_AV1_QSV=0 forces CPU AV1 transcode.
@@ -186,7 +186,7 @@ media_gib_per_hour() {
     echo "N/A"
     return 0
   fi
-  awk -v b="$size" -v d="$dur" -v max="${LG_TV_MAX_GIB_PER_HOUR:-3.5}" \
+  awk -v b="$size" -v d="$dur" -v max="${LG_TV_MAX_GIB_PER_HOUR:-5}" \
     'BEGIN { printf "%.2f", b * 3600 / d / 1073741824 }'
 }
 
@@ -198,7 +198,7 @@ over_storage_target() {
     fi
     return 1
   fi
-  awk -v g="$g" -v max="${LG_TV_MAX_GIB_PER_HOUR:-3.5}" 'BEGIN { exit (g > max ? 0 : 1) }'
+  awk -v g="$g" -v max="${LG_TV_MAX_GIB_PER_HOUR:-5}" 'BEGIN { exit (g > max ? 0 : 1) }'
 }
 
 vinfo=$(probe "$cin") || vinfo=""
@@ -633,7 +633,7 @@ elif [[ "$vcodec" == "av1" ]]; then
   fi
 elif [[ "$vcodec" == "h264" ]]; then
   if h264_needs_shrink; then
-    log "h264 HW shrink (${MEDIA_GIB} GiB/h > ${LG_TV_MAX_GIB_PER_HOUR:-3.5}, maxrate ${LG_TV_MAXRATE}, size=$(human_bytes "$SOURCE_SIZE")): $src"
+    log "h264 HW shrink (${MEDIA_GIB} GiB/h > ${LG_TV_MAX_GIB_PER_HOUR:-5}, maxrate ${LG_TV_MAXRATE:-15M}, size=$(human_bytes "$SOURCE_SIZE")): $src"
     h264_to_h264_tiered || exit 1
   else
   h264_remux_ok=0

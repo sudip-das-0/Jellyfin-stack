@@ -79,7 +79,7 @@ After Sonarr/Radarr finish importing, episodes/movies are **unmonitored** so the
 2. `sync-manual-deletes.py` — unmonitor titles removed from disk (Jellyfin UI / manual deletes)
 3. `unmonitor-on-import.py --drain-queue` — unmonitor episodes/movies after import (backstop for hooks)
 4. `queue-dedupe.py` — one torrent per episode/movie (updates shared `stall-recovery/state.json` on trim)
-5. `torrent-stall-recovery.py` — 12h stall **in active qBit slot** → 2 alternates → fail + blocklist
+5. `torrent-stall-recovery.py` — 12h no **download** progress **in active qBit slot** → 2 alternates; qBit job removed **without** deleting files → fail + blocklist if both alternates stall
 6. `sonarr-prune-command-queue.py` — cap queued `SeasonSearch` commands so imports can run
 7. `reconcile-torrents-library.py` — drop torrent copies already in `media/`; import orphans; LG + sidecars (`RECONCILE_IMPORT_LIMIT`, default 15)
 8. `cleanup-qbit-missing.py` — `missingFiles` / dead 0-seed torrents
@@ -90,11 +90,17 @@ After Sonarr/Radarr finish importing, episodes/movies are **unmonitored** so the
 
 Manual missing search: `queue-missing-downloads.py` (`--tv-only` / `--movies-only`). Failed grabs: `retry-failed-downloads.py` (same flags; clears blocklist unless `--keep-blocklist`).
 
-Shared Python: `arr_common.py` (`fetch_arr_queue`, `STALL_RECOVERY_STATE_PATH`, `QBIT_ACTIVE_DOWNLOAD_STATES`) · Bash paths: `stack-paths.sh`
+Shared Python: `arr_common.py` (`fetch_arr_queue`, `STALL_RECOVERY_STATE_PATH`, `QBIT_ACTIVE_DOWNLOAD_STATES`, `JELLYFIN_*`, `STALL_SECONDS_DEFAULT=43200`, `qbit_remove_client_only`) · Bash paths: `stack-paths.sh` (keep in sync)
+
+Legacy torrent dirs on NVMe: `./purge-internal-torrent-data.sh` (removes `~/data/torrents` stubs; optional NVMe `/mnt/jellyfin` skeleton when SSD unmounted).
 
 Optional one-off: `./cleanup-partial-series.py --torrent-library [--dry-run]` — drop torrent copies already in `media/` (not on the timer).
 
 Download policy (re-apply after stack reset): `./apply-no-seed-download-policy.sh`
+
+**USB SSD unplug / I/O errors in qBit:** If many torrents show **Error** or **Missing files**, the jellyfin drive may be unmounted while containers still hold a stale bind mount. Run `./recover-jellyfin-drive.sh` (mount by UUID + restart stack + refresh *arr downloads).
+
+**Downloads only on the external SSD:** qBit/Sonarr/Radarr use `/data` → `/mnt/jellyfin` (UUID `0caa73f3-…`). `ensure-jellyfin-media-mount.sh` + `jellyfin-drive-guard.timer` stop downloaders if that mount is missing (nothing should land on NVMe). Marker: `/mnt/jellyfin/.jellyfin-external-drive`.
 
 ## LG TV direct-play pipeline
 
@@ -110,4 +116,4 @@ Import (Sonarr/Radarr) → `hooks/arr-import-postprocess.sh` → episode-matched
 | `stall-recovery/lg-tv-optimize.log` | LG remux (tail-trimmed when large) |
 | `sonarr/`, `radarr/`, `qbittorrent/` | Docker app logs |
 
-Extended docs: [`docs/`](docs/) · systemd templates: [`systemd/user/`](systemd/user/)
+Extended docs: [`docs/`](docs/) · conventions: [`docs/SCRIPT-CONVENTIONS.md`](docs/SCRIPT-CONVENTIONS.md) · systemd templates: [`systemd/user/`](systemd/user/)

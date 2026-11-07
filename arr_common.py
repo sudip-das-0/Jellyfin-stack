@@ -1,4 +1,7 @@
-"""Shared helpers for *arr / qBittorrent maintenance scripts (stdlib only)."""
+"""Shared helpers for *arr / qBittorrent maintenance scripts (stdlib only).
+
+Sections: paths · HTTP (*arr/qBit) · queue/notifications · logging · stall helpers
+"""
 from __future__ import annotations
 
 import base64
@@ -13,11 +16,17 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 TZ = ZoneInfo("Asia/Kolkata")
-CONFIG_ROOT = Path("/home/devdas/arr")
+CONFIG_ROOT = Path(os.environ.get("CONFIG_ROOT", "/home/devdas/arr"))
 SCRIPTS_ROOT = Path("/mnt/jellyfin/scripts")
 HOOKS_DIR = SCRIPTS_ROOT / "hooks"
-ARR_ROOT = CONFIG_ROOT  # *arr Docker config on SSD
-LOG_ROOT = Path("/mnt/jellyfin/logs")
+ARR_ROOT = CONFIG_ROOT  # *arr Docker config on internal NVMe (not in git)
+JELLYFIN_MNT = Path(os.environ.get("JELLYFIN_MNT", "/mnt/jellyfin"))
+JELLYFIN_UUID = os.environ.get("JELLYFIN_UUID", "0caa73f3-4f57-4549-8e6d-fbf323866d28")
+JELLYFIN_MARKER = JELLYFIN_MNT / ".jellyfin-external-drive"
+MEDIA_ROOT = JELLYFIN_MNT / "media"
+TORRENTS_ROOT = JELLYFIN_MNT / "torrents"
+LOG_ROOT = JELLYFIN_MNT / "logs"
+STALL_SECONDS_DEFAULT = int(os.environ.get("STALL_SECONDS_DEFAULT", "43200"))
 STALL_LOG_DIR = LOG_ROOT / "stall-recovery"
 # Shared by queue-dedupe.py (reset on trim) and torrent-stall-recovery.py (stall jobs).
 STALL_RECOVERY_STATE_PATH = STALL_LOG_DIR / "state.json"
@@ -28,6 +37,8 @@ QBIT_ACTIVE_DOWNLOAD_STATES = frozenset(
 )
 SONARR_CONFIG = ARR_ROOT / "config/sonarr/config.xml"
 RADARR_CONFIG = ARR_ROOT / "config/radarr/config.xml"
+BAZARR_CONFIG = ARR_ROOT / "config/bazarr/config/config.yaml"
+BAZARR_DB = ARR_ROOT / "config/bazarr/db/bazarr.db"
 SONARR_URL = os.environ.get("SONARR_URL", "http://127.0.0.1:8989")
 RADARR_URL = os.environ.get("RADARR_URL", "http://127.0.0.1:7878")
 QBIT_URL = os.environ.get("QBIT_URL", "http://127.0.0.1:8080")
@@ -40,6 +51,14 @@ def read_api_key(path: Path | None = None) -> str:
     if not m:
         raise RuntimeError(f"No ApiKey in {path}")
     return m.group(1)
+
+
+def read_bazarr_api_key() -> str:
+    text = BAZARR_CONFIG.read_text(encoding="utf-8")
+    for line in text.splitlines():
+        if line.strip().startswith("apikey:"):
+            return line.split(":", 1)[1].strip()
+    raise RuntimeError(f"No apikey in {BAZARR_CONFIG}")
 
 
 def arr_json(
@@ -106,6 +125,11 @@ def qbit_delete(hashes: list[str], *, delete_files: bool = True) -> None:
     qbit_json("/api/v2/torrents/delete", method="POST", data=body)
 
 
+def qbit_remove_client_only(hashes: list[str]) -> None:
+    """Drop torrent jobs from qBittorrent; keep files on TORRENTS_ROOT."""
+    qbit_delete(hashes, delete_files=False)
+
+
 def fetch_arr_queue(base_url: str, api_key: str) -> list[dict]:
     records: list[dict] = []
     page = 1
@@ -148,6 +172,26 @@ def arr_queue_remove(
         if e.code == 404:
             return False
         raise
+
+
+def jellyfin_volume_ready(*, min_free_mb: int | None = None) -> bool:
+    """True when bash ensure-jellyfin-media-mount.sh succeeds (mount + I/O + free space)."""
+    import subprocess
+
+    env = os.environ.copy()
+    if min_free_mb is not None:
+        env["JELLYFIN_MIN_FREE_MB"] = str(min_free_mb)
+    try:
+        subprocess.run(
+            [str(SCRIPTS_ROOT / "ensure-jellyfin-media-mount.sh")],
+            capture_output=True,
+            timeout=60,
+            env=env,
+            check=True,
+        )
+        return True
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError):
+        return False
 
 
 def qbit_json(

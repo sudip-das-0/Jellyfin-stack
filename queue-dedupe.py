@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""One torrent + one queue row per Sonarr episode / Radarr movie."""
+"""One torrent + one queue row per Sonarr episode / Radarr movie.
+
+Runs: download-maintenance.sh (before stall recovery). Updates shared stall state on trim.
+"""
 from __future__ import annotations
 
 import json
@@ -8,7 +11,6 @@ import sys
 import urllib.error
 from datetime import datetime, timezone
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from arr_common import (
@@ -18,6 +20,7 @@ from arr_common import (
     SONARR_URL,
     STALL_LOG_DIR,
     STALL_RECOVERY_STATE_PATH,
+    TZ,
     arr_queue_remove,
     fetch_arr_queue,
     norm_qbit_hash,
@@ -25,8 +28,6 @@ from arr_common import (
     qbit_torrents,
     read_api_key,
 )
-
-TZ = ZoneInfo("Asia/Kolkata")
 LOG_DIR = STALL_LOG_DIR
 DEDUPE_VERBOSE = os.environ.get("DEDUPE_VERBOSE", "") == "1"
 STATE_PATH = STALL_RECOVERY_STATE_PATH

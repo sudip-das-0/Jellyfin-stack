@@ -63,14 +63,18 @@ Runs immediately after dedupe in `download-maintenance.sh`.
 
 | Step | Rule |
 |------|------|
-| 1 | If that torrent has **no progress for 12 hours while it holds an active download slot** (downloading / metaDL / forcedDL / stalledDL / checkingDL — i.e. one of qBit’s max-active downloads, not **queued** waiting for a slot), Sonarr/Radarr search for **two** alternate releases (highest **seeders** first). The stalled torrent is removed from qBittorrent. |
-| 2 | While two alternates are active: if **one** is healthy (downloading / progressing), **remove all other** torrents for that item and keep the winner. |
-| 3 | If **both** alternates have no progress for **12 hours in active slots**, delete both, **blocklist** the grabs, and mark the queue item **failed** (`skipRedownload` — no endless retry loop). |
+| 1 | If that torrent has **no download progress for 12 hours while it holds an active download slot** (downloading / metaDL / forcedDL / stalledDL / checkingDL — i.e. one of qBit’s max-active downloads, not **queued** waiting for a slot), Sonarr/Radarr search for **two** alternate releases (highest **seeders** first). The stalled torrent is **removed from qBittorrent only** (`deleteFiles=false` — partial files stay under `/mnt/jellyfin/torrents`). |
+| 2 | While two alternates are active: if **one** is healthy (downloading / progressing), **remove the other torrent jobs from qBit** (files stay) and keep the winner. |
+| 3 | If **both** alternates have no download progress for **12 hours in active slots**, remove both from qBit (files stay), **blocklist** the grabs, and mark the queue item **failed** (`skipRedownload` on that queue row). Re-search later with **`retry-failed-downloads.py`** (clears blocklist) or missing-library timers — not an instant automatic redownload loop. |
 
 **Does not run** if more than one torrent is still attached to the same episode/movie (dedupe must run first).
 
+**Progress detection:** each maintenance pass compares qBit **`progress`** (4 decimals) and **`downloaded`** bytes. Upload speed/bytes do **not** reset the stall clock. While **healthy**, a torrent may still show `dlspeed > 0` or states `downloading` / `metaDL` / `forcedDL` / `checkingDL` even between byte advances.
+
 **Timer:** `torrent-stall-recovery.timer` (every 30 min) → `download-maintenance.sh`  
 **Stall window:** `STALL_SECONDS=43200` (12 h) on `torrent-stall-recovery.service` (override there if needed).
+
+**Not the same as:** `cleanup-qbit-missing.py` (broken/missing swarms, may delete files) or `queue-dedupe.py` (drops **duplicate** swarms for the same item, removes extra torrents **with** files).
 
 ---
 

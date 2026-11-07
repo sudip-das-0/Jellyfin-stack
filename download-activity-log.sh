@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Append download activity to dated logs on /mnt/jellyfin (outside container bind mounts).
 set -euo pipefail
+# shellcheck source=stack-paths.sh
+source "$(dirname "$0")/stack-paths.sh"
 
-LOG_DIR="/mnt/jellyfin/logs/downloads"
-SONARR_KEY="$(grep -oP '(?<=<ApiKey>)[^<]+' /home/devdas/arr/config/sonarr/config.xml)"
-RADARR_KEY="$(grep -oP '(?<=<ApiKey>)[^<]+' /home/devdas/arr/config/radarr/config.xml)"
-QBIT_USER="Dimpu"
-QBIT_PASS="adminadmin"
+LOG_DIR="${LOG_ROOT}/downloads"
+SONARR_KEY="$(read_arr_api_key "$SONARR_CONFIG")"
+RADARR_KEY="$(read_arr_api_key "$RADARR_CONFIG")"
 DATE="$(TZ=Asia/Kolkata date +%F)"
 TS="$(TZ=Asia/Kolkata date '+%Y-%m-%d %H:%M:%S %Z')"
 OUT="${LOG_DIR}/download-${DATE}.log"

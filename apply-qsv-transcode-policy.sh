@@ -52,7 +52,7 @@ PY
 install_optimize_unit() {
   mkdir -p "$(dirname "$USER_UNIT")"
   cp "$REPO_UNIT" "$USER_UNIT"
-  echo "installed $USER_UNIT (LG_TV_AV1_HW_ATTEMPTS=3, LG_TV_OPTIMIZE_MAX_RETRIES=4)"
+  echo "installed $USER_UNIT (5 GiB/h, 15M maxrate, LG_TV_AV1_HW_ATTEMPTS=3, LG_TV_OPTIMIZE_MAX_RETRIES=4)"
 }
 
 main() {

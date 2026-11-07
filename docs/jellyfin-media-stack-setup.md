@@ -223,13 +223,13 @@ Timer: `systemctl --user status download-activity-log.timer`
 
 ### Download maintenance (dedupe + stall recovery)
 
-Every **5 minutes**, `download-maintenance.sh` runs **in order** (LG TV queue is **not** here — see `lg-tv-optimize.timer`, continuous drain):
+Every **30 minutes**, `torrent-stall-recovery.timer` → `download-maintenance.sh` runs **in order** (LG TV worker is separate — `lg-tv-optimize.service`):
 
 1. **`queue-dedupe.py`** — at most **one** qBittorrent torrent + **one** Sonarr/Radarr queue row per episode/movie (keeps best progress/speed/seeds). Drops orphan queue rows with no torrent for **≥6 h**.
-2. **`torrent-stall-recovery.py`** — only when exactly **one** torrent is active for that item:
-   - **1 h** no progress → grab **two** alternates (most seeders first).
-   - One alternate healthy → remove the other(s).
-   - Both alternates stall **1 h** → remove both, mark **failed** (blocklist, no redownload loop).
+2. **`torrent-stall-recovery.py`** — only when exactly **one** torrent is active for that item (`STALL_SECONDS=43200`, **12 h**, active download slot only):
+   - No **download** progress (`progress` + `downloaded` bytes unchanged) → grab **two** alternates; drop stalled job from qBit **without** deleting files.
+   - One alternate healthy → remove other torrent jobs from qBit (files stay).
+   - Both alternates stall **12 h** → remove both from qBit (files stay), mark **failed**; run **`retry-failed-downloads.py`** when you want another search pass.
 
 **Sonarr/Radarr tuning (applied):**
 
@@ -248,7 +248,7 @@ Every **5 minutes**, `download-maintenance.sh` runs **in order** (LG TV queue is
 | Log | `/mnt/jellyfin/logs/stall-recovery/recovery-YYYY-MM-DD.log` |
 | Timer | `systemctl --user status torrent-stall-recovery.timer` |
 
-Override stall window: `STALL_SECONDS=3600` in the systemd service environment if needed.
+Override stall window: `STALL_SECONDS=43200` (12 h) in `torrent-stall-recovery.service` if needed.
 
 ### Docker Compose backup
 

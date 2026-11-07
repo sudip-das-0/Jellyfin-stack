@@ -56,7 +56,7 @@ generic = {
     "Enabled": True,
     "SendAllProperties": True,
     "Template": "",
-    "NotificationTypes": ["ItemDeleted"],
+    "NotificationTypes": ["ItemDeleted", "PlaybackStart"],
     "EnableMovies": True,
     "EnableEpisodes": True,
     "EnableSeasons": True,
@@ -85,5 +85,7 @@ systemctl --user enable --now jellyfin-delete-webhook.service
 
 "$DIR/register-arr-delete-sync.sh"
 
-echo "Done. In Jellyfin, when deleting items check «Delete from server» so files are removed from disk."
+echo "Done. Webhook also runs jellyfin-delete-guard (UserData sanitization + DB ghost purge on ItemDeleted)."
+echo "PlaybackStart events clear bad UserData before you delete from the UI."
+echo "When deleting items check «Delete from server» so files are removed from disk."
 echo "Webhook listener: systemctl --user status jellyfin-delete-webhook.service"

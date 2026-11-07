@@ -53,7 +53,7 @@ def videos():
     return out
 
 
-MAX_GIB_PER_HOUR = float(os.environ.get("LG_TV_MAX_GIB_PER_HOUR", "3.5"))
+MAX_GIB_PER_HOUR = float(os.environ.get("LG_TV_MAX_GIB_PER_HOUR", "5"))
 
 
 def ffprobe(path: str):
@@ -209,7 +209,7 @@ touch "$LG_TV_SKIPPED" 2>/dev/null || true
 while IFS= read -r path; do
   [[ -n "$path" && -f "$path" ]] || continue
   if grep -Fxq "$path" "$LG_TV_SKIPPED" 2>/dev/null; then
-    if /usr/bin/python3 /mnt/jellyfin/scripts/lg_tv_storage.py "$path" "${LG_TV_MAX_GIB_PER_HOUR:-3.5}" >/dev/null 2>&1; then
+    if /usr/bin/python3 /mnt/jellyfin/scripts/lg_tv_storage.py "$path" "${LG_TV_MAX_GIB_PER_HOUR:-5}" >/dev/null 2>&1; then
       skipped=$((skipped + 1))
       continue
     fi

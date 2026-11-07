@@ -8,7 +8,7 @@ import subprocess
 import sys
 
 MEDIA_ROOT = "/mnt/jellyfin/media"
-DEFAULT_MAX_GIB_PER_HOUR = 3.5
+DEFAULT_MAX_GIB_PER_HOUR = 5.0
 
 
 def probe_duration_sec(host_path: str, timeout: int = 90) -> float | None:

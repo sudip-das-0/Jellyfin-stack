@@ -3,10 +3,15 @@
 Stall recovery for Sonarr/Radarr downloads in qBittorrent.
 
 Rules:
-  1. If a torrent has made no progress for STALL_SECONDS (default 1h) while it holds an
-     active qBittorrent download slot (not queued/waiting), grab two alternates.
-  2. Among the two alternates, if exactly one is healthy (progressing), remove the other.
-  3. If both alternates stall for STALL_SECONDS in active slots, remove both and mark failed.
+  1. If a torrent has made no download progress for STALL_SECONDS while it holds an active
+     qBittorrent download slot (not queued/waiting), grab two alternates.
+  2. Among the two alternates, if exactly one is healthy (progressing), remove the other
+     torrent jobs from qBit only (files stay on disk).
+  3. If both alternates stall for STALL_SECONDS in active slots, remove both from qBit
+     (files stay), blocklist, mark failed — use retry-failed-downloads.py to re-search later.
+
+Stall clock uses qBit progress + downloaded bytes (not upload speed). STALL_SECONDS is set
+on torrent-stall-recovery.service (43200 = 12 h).
 """
 from __future__ import annotations
 
@@ -26,18 +31,20 @@ from arr_common import (
     SONARR_URL,
     STALL_LOG_DIR,
     STALL_RECOVERY_STATE_PATH,
+    STALL_SECONDS_DEFAULT,
     TZ,
+    jellyfin_volume_ready,
+    qbit_remove_client_only,
     arr_json,
     arr_queue_remove,
     fetch_arr_queue,
     holds_active_qbit_download_slot,
     norm_qbit_hash,
-    qbit_delete,
     qbit_torrents,
     read_api_key,
 )
 
-STALL_SECONDS = int(os.environ.get("STALL_SECONDS", "3600"))
+STALL_SECONDS = int(os.environ.get("STALL_SECONDS", str(STALL_SECONDS_DEFAULT)))
 LOG_DIR = STALL_LOG_DIR
 STATE_PATH = STALL_RECOVERY_STATE_PATH
 
@@ -66,8 +73,9 @@ def torrent_by_hash(torrents: list[dict]) -> dict[str, dict]:
     return {norm_qbit_hash(t["hash"]): t for t in torrents}
 
 
-def progress_key(t: dict) -> tuple[float, int, int]:
-    return (round(t.get("progress", 0), 4), t.get("dlspeed", 0), t.get("upspeed", 0))
+def progress_key(t: dict) -> tuple[float, int]:
+    """Download progress only — upload speed/bytes must not reset the stall timer."""
+    return (round(t.get("progress", 0), 4), int(t.get("downloaded") or 0))
 
 
 def update_stall_tracking(track: dict, t: dict | None, now: float) -> bool:
@@ -284,7 +292,7 @@ def process_sonarr(
             job["tried_guids"] = list(tried)
             job["pending_alts"] = len(alts)
             job["phase"] = "alternates"
-            qbit_delete(stalled_primaries, delete_files=True)
+            qbit_remove_client_only(stalled_primaries)
             for h in stalled_primaries:
                 job["hashes"].pop(h, None)
             continue
@@ -328,7 +336,7 @@ def process_sonarr(
                     f"Sonarr episode {episode_id}: keeping one healthy torrent, "
                     f"removing {len(remove)} other torrent(s)"
                 )
-                qbit_delete(remove, delete_files=True)
+                qbit_remove_client_only(remove)
                 job["hashes"] = {keep: job["hashes"].get(keep, {"role": "alternate"})}
                 job["phase"] = "done"
                 continue
@@ -337,7 +345,7 @@ def process_sonarr(
                 tracks[h].get("stalled_for", 0) >= STALL_SECONDS for h in alt_hashes[:2]
             ):
                 log(f"Sonarr episode {episode_id}: both alternates stalled ≥{STALL_SECONDS}s — marking failed")
-                qbit_delete(alt_hashes, delete_files=True)
+                qbit_remove_client_only(alt_hashes)
                 fail_queue_items(SONARR_URL, api_key, job["queue_ids"], "Sonarr")
                 job["phase"] = "failed"
                 job["failed_hashes"] = list(current_hashes)
@@ -419,7 +427,7 @@ def process_radarr(
             job["tried_guids"] = list(tried)
             job["pending_alts"] = len(alts)
             job["phase"] = "alternates"
-            qbit_delete(stalled_primaries, delete_files=True)
+            qbit_remove_client_only(stalled_primaries)
             for h in stalled_primaries:
                 job["hashes"].pop(h, None)
             continue
@@ -461,7 +469,7 @@ def process_radarr(
                     f"Radarr movie {movie_id}: keeping one healthy torrent, "
                     f"removing {len(remove)} other torrent(s)"
                 )
-                qbit_delete(remove, delete_files=True)
+                qbit_remove_client_only(remove)
                 job["hashes"] = {keep: job["hashes"].get(keep, {"role": "alternate"})}
                 job["phase"] = "done"
                 continue
@@ -470,7 +478,7 @@ def process_radarr(
                 tracks[h].get("stalled_for", 0) >= STALL_SECONDS for h in alt_hashes[:2]
             ):
                 log(f"Radarr movie {movie_id}: both alternates stalled ≥{STALL_SECONDS}s — marking failed")
-                qbit_delete(alt_hashes, delete_files=True)
+                qbit_remove_client_only(alt_hashes)
                 fail_queue_items(RADARR_URL, api_key, job["queue_ids"], "Radarr")
                 job["phase"] = "failed"
                 job["failed_hashes"] = list(current_hashes)
@@ -478,6 +486,9 @@ def process_radarr(
 
 
 def main() -> int:
+    if not jellyfin_volume_ready():
+        log("skipped — jellyfin SSD not ready (drive guard)")
+        return 0
     try:
         sonarr_key = read_api_key(SONARR_CONFIG)
         radarr_key = read_api_key(RADARR_CONFIG)

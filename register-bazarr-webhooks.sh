@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
-# Register Sonarr/Radarr webhooks so Bazarr searches subtitles on every import/upgrade.
+# Purpose: Sonarr/Radarr → Bazarr webhooks on import/upgrade.
+# Runs: register-stack-hooks.sh
 set -euo pipefail
+# shellcheck source=stack-paths.sh
+source "$(dirname "$0")/stack-paths.sh"
 
-SONARR_KEY=$(grep -oP '(?<=<ApiKey>)[^<]+' /home/devdas/arr/config/sonarr/config.xml)
-RADARR_KEY=$(grep -oP '(?<=<ApiKey>)[^<]+' /home/devdas/arr/config/radarr/config.xml)
-BAZARR_KEY=$(grep -A2 '^auth:' /home/devdas/arr/config/bazarr/config/config.yaml | grep apikey | awk '{print $2}')
+SONARR_KEY=$(read_arr_api_key "$SONARR_CONFIG")
+RADARR_KEY=$(read_arr_api_key "$RADARR_CONFIG")
+BAZARR_KEY=$(read_bazarr_api_key)
 
 upsert_webhook() {
   local base=$1 key=$2 name=$3 url=$4 bazarr_key=$5

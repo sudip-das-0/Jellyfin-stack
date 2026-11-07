@@ -1,10 +1,30 @@
 # Shared paths (keep in sync with arr_common.py). Source from bash maintenance scripts.
-LOG_ROOT=/mnt/jellyfin/logs
+JELLYFIN_MNT="${JELLYFIN_MNT:-/mnt/jellyfin}"
+JELLYFIN_UUID="${JELLYFIN_UUID:-0caa73f3-4f57-4549-8e6d-fbf323866d28}"
+JELLYFIN_MARKER="${JELLYFIN_MNT}/.jellyfin-external-drive"
+MEDIA_ROOT="${JELLYFIN_MNT}/media"
+TORRENTS_ROOT="${JELLYFIN_MNT}/torrents"
+LOG_ROOT="${JELLYFIN_MNT}/logs"
 STALL_LOG_DIR="${LOG_ROOT}/stall-recovery"
 LG_TV_DIR="${LOG_ROOT}/lg-tv"
 SCRIPTS_ROOT=/mnt/jellyfin/scripts
 HOOKS_DIR="${SCRIPTS_ROOT}/hooks"
-CONFIG_ROOT=/home/devdas/arr
+CONFIG_ROOT="${CONFIG_ROOT:-/home/devdas/arr}"
+SONARR_CONFIG="${CONFIG_ROOT}/config/sonarr/config.xml"
+RADARR_CONFIG="${CONFIG_ROOT}/config/radarr/config.xml"
+BAZARR_CONFIG="${CONFIG_ROOT}/config/bazarr/config/config.yaml"
+BAZARR_DB="${CONFIG_ROOT}/config/bazarr/db/bazarr.db"
+QBIT_USER="${QBIT_USER:-Dimpu}"
+QBIT_PASS="${QBIT_PASS:-adminadmin}"
+STALL_SECONDS_DEFAULT="${STALL_SECONDS_DEFAULT:-43200}"
+
+read_arr_api_key() {
+  grep -oP '(?<=<ApiKey>)[^<]+' "${1:?}"
+}
+
+read_bazarr_api_key() {
+  grep -A2 '^auth:' "${BAZARR_CONFIG:?}" | grep apikey | awk '{print $2}'
+}
 LG_TV_QUEUE="${LG_TV_DIR}/optimize.queue"
 LG_TV_LOCK="${LG_TV_DIR}/optimize.lock"
 LG_TV_RETRIES="${LG_TV_DIR}/optimize.retries.tsv"
@@ -30,6 +50,6 @@ export LG_TV_MAXRATE="${LG_TV_MAXRATE:-15M}"
 export LG_TV_BUFSIZE="${LG_TV_BUFSIZE:-30M}"
 export LG_TV_TARGET_VBITRATE_BPS="${LG_TV_TARGET_VBITRATE_BPS:-15000000}"
 # Skip optimize when file is LG-friendly and at/below this storage rate (GiB per hour of runtime).
-export LG_TV_MAX_GIB_PER_HOUR="${LG_TV_MAX_GIB_PER_HOUR:-3.5}"
+export LG_TV_MAX_GIB_PER_HOUR="${LG_TV_MAX_GIB_PER_HOUR:-5}"
 # H.264 above LG_TV_MAX_GIB_PER_HOUR uses HW transcode (not -c:v copy) when LG_TV_H264_SHRINK=1.
 export LG_TV_H264_SHRINK="${LG_TV_H264_SHRINK:-1}"

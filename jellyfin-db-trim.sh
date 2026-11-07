@@ -103,88 +103,35 @@ trim_sqlite() {
     echo "Removed ${placeholder} PLACEHOLDER item(s)."
   fi
 
-  trim_missing_media_baseitems
+  jellyfin_db_offline_maintenance
 }
 
-trim_missing_media_baseitems() {
+jellyfin_db_offline_maintenance() {
   python3 <<'PY'
-import os
-import sqlite3
+import sys
+from pathlib import Path
 
-DB = "/mnt/jellyfin/jellyfin/config/data/jellyfin.db"
-HOST_ROOT = "/mnt/jellyfin"
+sys.path.insert(0, "/mnt/jellyfin/scripts")
+from jellyfin_db_lib import connect, prune_orphan_foreign_keys, sanitize_userdata, trim_missing_media_baseitems
 
+db = connect()
+deleted = prune_orphan_foreign_keys(db)
+if deleted:
+    print(f"Pruned {deleted} orphan foreign-key row(s).")
+else:
+    print("Orphan foreign-key rows: none.")
 
-def host_path(db_path: str) -> str | None:
-    if not db_path:
-        return None
-    if db_path.startswith("/media/"):
-        return HOST_ROOT + db_path[len("/media") :]
-    if db_path.startswith("/mnt/jellyfin/"):
-        return db_path
-    return None
+removed = sanitize_userdata(db)
+if removed:
+    print(f"Removed {removed} UserData row(s) with non-standard CustomDataKey.")
+else:
+    print("Corrupt UserData keys: none.")
 
-
-db = sqlite3.connect(DB)
-rows = db.execute(
-    "SELECT Id, Type, path FROM BaseItems WHERE path IS NOT NULL AND path != ''"
-).fetchall()
-missing: list[str] = []
-for item_id, _typ, path in rows:
-    hp = host_path(path)
-    if not hp:
-        continue
-    if os.path.exists(hp):
-        continue
-    if _typ.endswith("Series") or _typ.endswith("Season"):
-        if os.path.isdir(hp):
-            continue
-    missing.append(item_id)
-
-if not missing:
+n = trim_missing_media_baseitems(db)
+if n:
+    print(f"Missing-file library ghosts: {n} item(s) removed.")
+else:
     print("Missing-file library ghosts: none.")
-    raise SystemExit(0)
-
-print(f"Missing-file library ghosts: {len(missing)} item(s)")
-placeholders = ",".join("?" for _ in missing)
-for table, col in (
-    ("UserData", "ItemId"),
-    ("ItemValuesMap", "ItemId"),
-    ("PeopleBaseItemMap", "ItemId"),
-    ("BaseItemImageInfos", "ItemId"),
-    ("BaseItemProviders", "ItemId"),
-    ("BaseItemMetadataFields", "ItemId"),
-    ("MediaStreamInfos", "ItemId"),
-    ("Chapters", "ItemId"),
-    ("KeyframeData", "ItemId"),
-    ("AttachmentStreamInfos", "ItemId"),
-    ("MediaSegments", "ItemId"),
-    ("TrickplayInfos", "ItemId"),
-):
-    try:
-        db.execute(
-            f"DELETE FROM {table} WHERE {col} IN ({placeholders})", missing
-        )
-    except sqlite3.OperationalError:
-        pass
-try:
-    db.execute(
-        f"DELETE FROM AncestorIds WHERE ItemId IN ({placeholders}) OR ParentItemId IN ({placeholders})",
-        missing + missing,
-    )
-except sqlite3.OperationalError:
-    pass
-db.execute(
-    f"DELETE FROM BaseItems WHERE Id IN ({placeholders}) AND Type LIKE '%Episode%'",
-    missing,
-)
-db.execute(
-    f"DELETE FROM BaseItems WHERE Id IN ({placeholders}) AND Type LIKE '%Season%'",
-    missing,
-)
-db.execute(f"DELETE FROM BaseItems WHERE Id IN ({placeholders})", missing)
-db.commit()
-print(f"Removed {len(missing)} BaseItems whose path is missing on disk.")
 PY
 }
 

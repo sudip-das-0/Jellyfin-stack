@@ -2,6 +2,10 @@
 
 Live scripts: `/mnt/jellyfin/scripts/`; import hooks in `scripts/hooks/` (mounted in Sonarr/Radarr as `/data/scripts`). Logs: `/mnt/jellyfin/logs/` (not in git).
 
+**Path constants:** Python `arr_common.py` and Bash `stack-paths.sh` must stay aligned (`JELLYFIN_MNT`, `TORRENTS_ROOT`, `CONFIG_ROOT`, `STALL_SECONDS_DEFAULT=43200`, qBit creds via `QBIT_USER`/`QBIT_PASS`). Verify: `./stack-verify.sh`.
+
+**External SSD only:** `ensure-jellyfin-media-mount.sh`, `jellyfin-drive-guard.timer`, marker `/mnt/jellyfin/.jellyfin-external-drive`. Recovery: `recover-jellyfin-drive.sh`. Purge NVMe stubs: `purge-internal-torrent-data.sh`.
+
 ## Scheduled
 
 | Unit | Script |
@@ -13,13 +17,15 @@ Live scripts: `/mnt/jellyfin/scripts/`; import hooks in `scripts/hooks/` (mounte
 | `lg-tv-new-media-watch.service` | `lg-tv-watch-new-media.sh` |
 | `download-activity-log.timer` (15 min) | `download-activity-log.sh` |
 | `qbit-network-profile.timer` (2 min) | `apply-qbit-network-profile.py` (Wi‑Fi SSID → qBit limits) |
-| `media-stack.service` (boot) | `docker compose up -d` |
+| `media-stack.service` (boot) | `ensure-jellyfin-media-mount.sh` then `docker compose up -d` |
+| `jellyfin-drive-guard.timer` (2 min) | `jellyfin-drive-guard.sh` — stop qBit/Sonarr/Radarr if SSD missing |
 
 ## One-shot / maintenance
 
 | Script | Purpose |
 |--------|---------|
 | `register-stack-hooks.sh` | **Run after stack reset** — import hook + Bazarr webhooks + OpenSubtitles API key |
+| `register_arr_notifications.py` | *arr CustomScript connections (import / delete-sync / unmonitor) |
 | `apply-bazarr-subtitle-defaults.sh` | English profile + backfill missing subs |
 | `bazarr-resync-from-arr.sh` | Fix Bazarr FK/sync errors — purge cache DB + full *arr resync |
 | `apply-jellyfin-opensubtitles.sh` | Install/configure Jellyfin Open Subtitles plugin (same OS.com account as Bazarr) |

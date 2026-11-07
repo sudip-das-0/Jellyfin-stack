@@ -1,8 +1,14 @@
 #!/usr/bin/env bash
-# Dedupe queue/torrents first, then stalled-torrent recovery (single torrent per item only).
+# Purpose: Scheduled download pipeline (dedupe → stall recovery → reconcile → cleanup).
+# Runs: torrent-stall-recovery.timer (30 min)
+# Depends: stack-paths.sh, ensure-jellyfin-media-mount.sh
 set -uo pipefail
 # shellcheck source=stack-paths.sh
 source "$(dirname "$0")/stack-paths.sh"
+if ! "${SCRIPTS_ROOT}/ensure-jellyfin-media-mount.sh" >/dev/null 2>&1; then
+  echo "[maintenance] skipped — jellyfin SSD not ready (see drive-guard)" >&2
+  exit 0
+fi
 MAINT_LOCK="${STALL_LOG_DIR}/download-maintenance.lock"
 MAINT_LOG="${STALL_LOG_DIR}/recovery-$(date +%Y-%m-%d).log"
 DEFAULT_STEP_TIMEOUT="${MAINT_STEP_TIMEOUT_SEC:-900}"
@@ -35,18 +41,25 @@ maint_run() {
   return 0
 }
 
+# --- Log hygiene + library sync ---
 maint_run prune-stall-logs "$DEFAULT_STEP_TIMEOUT" \
   /usr/bin/python3 "${SCRIPTS_ROOT}/prune-stall-logs.py"
+maint_run jellyfin-delete-guard-sanitize 60 \
+  /usr/bin/python3 "${SCRIPTS_ROOT}/jellyfin-delete-guard.py" --sanitize-all
+maint_run jellyfin-delete-guard-ghosts 120 \
+  /usr/bin/python3 "${SCRIPTS_ROOT}/jellyfin-delete-guard.py" --purge-ghosts --ghost-limit 50
 maint_run sync-manual-deletes 180 \
   /usr/bin/python3 "${SCRIPTS_ROOT}/sync-manual-deletes.py"
 maint_run unmonitor-on-import 60 \
   /usr/bin/python3 "${SCRIPTS_ROOT}/unmonitor-on-import.py" --drain-queue
+# --- qBit queue health ---
 maint_run queue-dedupe "$DEFAULT_STEP_TIMEOUT" \
   /usr/bin/python3 "${SCRIPTS_ROOT}/queue-dedupe.py"
 maint_run torrent-stall-recovery "$DEFAULT_STEP_TIMEOUT" \
   /usr/bin/python3 "${SCRIPTS_ROOT}/torrent-stall-recovery.py"
 maint_run sonarr-prune-command-queue "$DEFAULT_STEP_TIMEOUT" \
   /usr/bin/python3 "${SCRIPTS_ROOT}/sonarr-prune-command-queue.py" || true
+# --- Import orphans + qBit hygiene ---
 maint_run reconcile-torrents-library "$DEFAULT_STEP_TIMEOUT" \
   /usr/bin/python3 "${SCRIPTS_ROOT}/reconcile-torrents-library.py" --skip-dedupe-cleanup
 maint_run cleanup-qbit-missing 120 \
@@ -55,6 +68,7 @@ maint_run cleanup-qbit-completed 120 \
   /usr/bin/python3 "${SCRIPTS_ROOT}/cleanup-qbit-completed.py"
 maint_run cleanup-partial-series "$DEFAULT_STEP_TIMEOUT" \
   /usr/bin/python3 "${SCRIPTS_ROOT}/cleanup-partial-series.py"
+# --- LG TV + Jellyfin metadata ---
 maint_run lg-tv-topup-queue 300 \
   "${SCRIPTS_ROOT}/lg-tv-topup-queue.sh" || true
 maint_run jellyfin-episode-images 300 \

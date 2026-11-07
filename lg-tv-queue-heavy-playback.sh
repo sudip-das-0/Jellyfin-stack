@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
-# Queue large / remux / m2ts movies for lg-tv-optimize (TV-friendly H.264 + stereo AAC .mkv).
+# Purpose: Queue large/remux/m2ts movies for LG optimize.
+# Runs: manual
 set -euo pipefail
 # shellcheck source=stack-paths.sh
-source /mnt/jellyfin/scripts/stack-paths.sh
+source "$(dirname "$0")/stack-paths.sh"
+# shellcheck source=hooks/lg-tv-queue-lib.sh
+source "${HOOKS_DIR}/lg-tv-queue-lib.sh"
 
-MOVIES="/mnt/jellyfin/media/movies"
+MOVIES="${MEDIA_ROOT}/movies"
 MIN_GB="${LG_TV_HEAVY_MIN_GB:-10}"
-QUEUE_HELPER="${HOOKS_DIR}/lg-tv-queue-path.sh"
 DRY=0
 [[ "${1:-}" == "--dry-run" ]] && DRY=1
 [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]] && {
@@ -33,24 +35,19 @@ while IFS= read -r -d '' path; do
   [[ "$low" == *remux* ]] && heavy=1
   [[ "$heavy" -eq 1 ]] || continue
 
-  if grep -Fxq "$path" "$LG_TV_SKIPPED" 2>/dev/null; then
-    skipped=$((skipped + 1))
-    continue
-  fi
   if [[ "$DRY" -eq 1 ]]; then
     echo "would queue ($(numfmt --to=iec-i --suffix=B "$size" 2>/dev/null || echo "${size}B")): $path"
     queued=$((queued + 1))
     continue
   fi
-  if grep -Fxq "$path" "$LG_TV_QUEUE" 2>/dev/null; then
+  lg_tv_enqueue_path "$path" "$DRY" || true
+  rc=$?
+  if [[ "$rc" -eq 2 ]]; then
     skipped=$((skipped + 1))
-    continue
+  elif [[ "$rc" -eq 0 ]]; then
+    queued=$((queued + 1))
   fi
-  "$QUEUE_HELPER" "$path"
-  queued=$((queued + 1))
 done < <(find "$MOVIES" -type f \( -name '*.mkv' -o -name '*.mp4' -o -name '*.m2ts' -o -name '*.ts' \) -print0 2>/dev/null)
 
 echo "heavy_playback queued=${queued} skipped=${skipped} min_gib=${MIN_GB} dry_run=${DRY}"
-if [[ "$DRY" -eq 0 && "$queued" -gt 0 ]]; then
-  systemctl --user start --no-block lg-tv-optimize.service 2>/dev/null || true
-fi
+lg_tv_maybe_start_worker "$queued" "$DRY"

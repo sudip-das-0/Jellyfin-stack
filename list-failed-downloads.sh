@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # List failed / stuck downloads across Sonarr, Radarr, qBittorrent, and LG optimize dead-letter.
 set -euo pipefail
+# shellcheck source=stack-paths.sh
+source "$(dirname "$0")/stack-paths.sh"
 
-SONARR_KEY="$(grep -oP '(?<=<ApiKey>)[^<]+' /home/devdas/arr/config/sonarr/config.xml)"
-RADARR_KEY="$(grep -oP '(?<=<ApiKey>)[^<]+' /home/devdas/arr/config/radarr/config.xml)"
-QBIT_USER="${QBIT_USER:-Dimpu}"
-QBIT_PASS="${QBIT_PASS:-adminadmin}"
+SONARR_KEY="$(read_arr_api_key "$SONARR_CONFIG")"
+RADARR_KEY="$(read_arr_api_key "$RADARR_CONFIG")"
 TMP="$(mktemp)"
 trap 'rm -f "$TMP"' EXIT
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Re-queue library files above LG_TV_MAX_GIB_PER_HOUR (default 3.5 GiB/h) for shrink/transcode.
+# Re-queue library files above LG_TV_MAX_GIB_PER_HOUR (default 5 GiB/h) for shrink/transcode.
 set -euo pipefail
 # shellcheck source=stack-paths.sh
 source /mnt/jellyfin/scripts/stack-paths.sh

@@ -3,6 +3,8 @@
 set -euo pipefail
 
 DIR=$(dirname "$(readlink -f "$0")")
+# shellcheck source=stack-paths.sh
+source "$DIR/stack-paths.sh"
 ERR=0
 warn() { echo "WARN: $*" >&2; ERR=1; }
 ok() { echo "OK: $*"; }
@@ -33,8 +35,8 @@ done
 ok "subtitle normalize runs on host (lg-tv-optimize-media.sh; *arr containers have no Python)"
 
 echo "=== *arr API notifications ==="
-SON_KEY=$(grep -oP '(?<=<ApiKey>)[^<]+' /home/devdas/arr/config/sonarr/config.xml)
-RAD_KEY=$(grep -oP '(?<=<ApiKey>)[^<]+' /home/devdas/arr/config/radarr/config.xml)
+SON_KEY=$(read_arr_api_key "$SONARR_CONFIG")
+RAD_KEY=$(read_arr_api_key "$RADARR_CONFIG")
 check_hook() {
   local name=$1 url=$2 key=$3
   path=$(curl -sf -H "X-Api-Key: $key" "$url/api/v3/notification" | python3 -c "
@@ -66,7 +68,7 @@ sys.exit(0 if ok else 1)
 }
 check_no_seed "http://127.0.0.1:8989" "$SON_KEY" "Sonarr"
 check_no_seed "http://127.0.0.1:7878" "$RAD_KEY" "Radarr"
-curl -sf -u Dimpu:adminadmin http://127.0.0.1:8080/api/v2/app/preferences | python3 -c "
+curl -sf -u "${QBIT_USER}:${QBIT_PASS}" http://127.0.0.1:8080/api/v2/app/preferences | python3 -c "
 import json,sys
 p=json.load(sys.stdin)
 ok=(
@@ -89,7 +91,7 @@ for n in json.load(sys.stdin):
 
 echo "=== Bazarr ↔ Sonarr/Radarr (Docker DNS) ==="
 docker exec bazarr getent hosts sonarr radarr &>/dev/null && ok "Bazarr resolves sonarr/radarr" || warn "Bazarr cannot resolve sonarr/radarr (split compose networks — recreate stack from /mnt/jellyfin/scripts)"
-BAZ_KEY=$(grep -A2 '^auth:' /home/devdas/arr/config/bazarr/config/config.yaml | grep apikey | awk '{print $2}')
+BAZ_KEY=$(read_bazarr_api_key)
 curl -sf -H "X-Api-Key: $BAZ_KEY" http://127.0.0.1:6767/api/system/status | python3 -c "
 import json,sys
 d=json.load(sys.stdin).get('data',{})
@@ -128,15 +130,20 @@ if [[ -L /home/devdas/jellyfin-drive ]]; then
 elif [[ -e /home/devdas/jellyfin-drive ]]; then
   warn "/home/devdas/jellyfin-drive is not a symlink (expected → /mnt/jellyfin)"
 fi
-if findmnt -T /mnt/jellyfin >/dev/null 2>&1; then
-  msrc=$(findmnt -T /mnt/jellyfin -no SOURCE)
-  ok "/mnt/jellyfin mounted ($msrc)"
-  touch /mnt/jellyfin/logs/.stack-verify-write-test 2>/dev/null \
-    && rm -f /mnt/jellyfin/logs/.stack-verify-write-test \
-    && ok "/mnt/jellyfin writable" \
-    || warn "/mnt/jellyfin not writable"
+if "$DIR/ensure-jellyfin-media-mount.sh" >/dev/null 2>&1; then
+  msrc=$(findmnt -no UUID "$JELLYFIN_MNT" 2>/dev/null || findmnt -no SOURCE "$JELLYFIN_MNT")
+  ok "$JELLYFIN_MNT mounted (UUID=$msrc) + marker OK"
+  touch "${LOG_ROOT}/.stack-verify-write-test" 2>/dev/null \
+    && rm -f "${LOG_ROOT}/.stack-verify-write-test" \
+    && ok "$JELLYFIN_MNT writable" \
+    || warn "$JELLYFIN_MNT not writable"
 else
-  warn "/mnt/jellyfin is not mounted (stack expects SSD at this path after migrate-hdd-to-ssd.sh)"
+  warn "$JELLYFIN_MNT failed ensure-jellyfin-media-mount (plug SSD / run recover-jellyfin-drive.sh)"
+fi
+if docker inspect qbittorrent --format '{{.State.Health.Status}}' 2>/dev/null | grep -qx healthy; then
+  ok "qbittorrent healthcheck (external torrents path)"
+else
+  warn "qbittorrent not healthy (check /data/.jellyfin-external-drive bind)"
 fi
 if docker inspect jellyfin --format '{{range .Mounts}}{{.Source}}:{{.Destination}} {{end}}' 2>/dev/null | grep -q '/mnt/jellyfin/media:/media'; then
   ok "Jellyfin container media → /mnt/jellyfin/media"
@@ -174,7 +181,7 @@ need_exec "$DIR/hooks/import-sidecar-subs.sh"
 REPO_UNIT="$DIR/systemd/user/lg-tv-optimize.service"
 USER_UNIT="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/lg-tv-optimize.service"
 if [[ -f "$REPO_UNIT" && -f "$USER_UNIT" ]]; then
-  for var in LG_TV_AV1_HW_ATTEMPTS LG_TV_OPTIMIZE_MAX_RETRIES LG_TV_HW_DECODE LG_TV_AV1_QSV; do
+  for var in LG_TV_AV1_HW_ATTEMPTS LG_TV_OPTIMIZE_MAX_RETRIES LG_TV_HW_DECODE LG_TV_AV1_QSV LG_TV_MAXRATE LG_TV_BUFSIZE LG_TV_TARGET_VBITRATE_BPS LG_TV_MAX_GIB_PER_HOUR; do
     repo_val=$(grep -E "^Environment=${var}=" "$REPO_UNIT" | head -1 | cut -d= -f3- || true)
     user_val=$(grep -E "^Environment=${var}=" "$USER_UNIT" | head -1 | cut -d= -f3- || true)
     if [[ -n "$repo_val" && "$repo_val" == "$user_val" ]]; then
@@ -186,7 +193,13 @@ if [[ -f "$REPO_UNIT" && -f "$USER_UNIT" ]]; then
     fi
   done
 fi
-for unit in media-stack.service lg-tv-optimize.service lg-tv-new-media-watch.service torrent-stall-recovery.timer download-activity-log.timer qbit-network-profile.timer; do
+STALL_UNIT="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/torrent-stall-recovery.service"
+if [[ -f "$STALL_UNIT" ]] && grep -q "STALL_SECONDS=${STALL_SECONDS_DEFAULT}" "$STALL_UNIT" 2>/dev/null; then
+  ok "torrent-stall-recovery STALL_SECONDS=${STALL_SECONDS_DEFAULT}"
+else
+  warn "torrent-stall-recovery.service missing STALL_SECONDS=${STALL_SECONDS_DEFAULT} (sync from systemd/user/)"
+fi
+for unit in media-stack.service lg-tv-optimize.service lg-tv-new-media-watch.service torrent-stall-recovery.timer download-activity-log.timer qbit-network-profile.timer jellyfin-drive-guard.timer; do
   systemctl --user is-enabled "$unit" &>/dev/null && ok "enabled $unit" || warn "not enabled: $unit"
 done
 systemctl --user is-active lg-tv-optimize.service &>/dev/null && ok "lg-tv-optimize.service running" || warn "lg-tv-optimize.service not active"

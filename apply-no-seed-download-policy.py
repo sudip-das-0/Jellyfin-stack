@@ -55,6 +55,10 @@ def patch_qbit_no_seed() -> None:
         "max_seeding_time": 1,
         "max_inactive_seeding_time_enabled": True,
         "max_inactive_seeding_time": 1,
+        # Lower USB SSD write pressure (was apply-qbit-download-safety.sh).
+        "preallocate_all": False,
+        "disk_cache": 64,
+        "disk_cache_ttl": 30,
     }
     body = urllib.parse.urlencode({"json": json.dumps(patch)}).encode()
     qbit_json("/api/v2/app/setPreferences", method="POST", data=body)

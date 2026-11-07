@@ -1,0 +1,119 @@
+#!/usr/bin/env python3
+"""Keep Jellyfin DB in sync when movies/episodes are deleted from the UI."""
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from jellyfin_db_lib import (  # noqa: E402
+    connect,
+    finish_delete,
+    prepare_items_for_delete,
+    purge_delete_ghosts,
+    sanitize_userdata,
+)
+
+LOG = Path("/mnt/jellyfin/logs/stall-recovery/jellyfin-delete-guard.log")
+
+
+def log(msg: str) -> None:
+    LOG.parent.mkdir(parents=True, exist_ok=True)
+    line = f"{msg}\n"
+    LOG.open("a", encoding="utf-8").write(line)
+    print(msg)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--sanitize-all",
+        action="store_true",
+        help="Remove corrupt UserData keys library-wide (safe while Jellyfin is running)",
+    )
+    parser.add_argument(
+        "--item-id",
+        action="append",
+        default=[],
+        metavar="UUID",
+        help="Movie/episode id (repeatable)",
+    )
+    parser.add_argument(
+        "--path",
+        action="append",
+        default=[],
+        help="Container or host media path (repeatable)",
+    )
+    parser.add_argument(
+        "--purge-ghosts",
+        action="store_true",
+        help="Drop movie/episode rows whose file is missing on disk",
+    )
+    parser.add_argument(
+        "--ghost-limit",
+        type=int,
+        default=100,
+        help="Max ghosts to purge per run (default 100)",
+    )
+    parser.add_argument(
+        "--prepare",
+        action="store_true",
+        help="Sanitize UserData for given --item-id before Jellyfin delete",
+    )
+    args = parser.parse_args()
+
+    if not any(
+        [
+            args.sanitize_all,
+            args.item_id,
+            args.path,
+            args.purge_ghosts,
+            args.prepare,
+        ]
+    ):
+        parser.print_help()
+        return 2
+
+    conn = connect()
+    try:
+        if args.sanitize_all:
+            n = sanitize_userdata(conn)
+            if n:
+                log(f"sanitize-all: removed {n} corrupt UserData row(s)")
+
+        if args.prepare and args.item_id:
+            n = prepare_items_for_delete(conn, args.item_id)
+            if n:
+                log(f"prepare: sanitized UserData for {len(args.item_id)} item(s), {n} row(s)")
+
+        for iid in args.item_id:
+            if args.prepare:
+                continue
+            res = finish_delete(conn, item_id=iid)
+            if res["sanitized_userdata"] or res["purged_ids"]:
+                log(
+                    f"finish-delete item={iid} userdata={res['sanitized_userdata']} "
+                    f"purged={res['purged_ids']}"
+                )
+
+        for p in args.path:
+            res = finish_delete(conn, path=p)
+            if res["sanitized_userdata"] or res["purged_ids"]:
+                log(
+                    f"finish-delete path={p} userdata={res['sanitized_userdata']} "
+                    f"purged={res['purged_ids']}"
+                )
+
+        if args.purge_ghosts:
+            n = purge_delete_ghosts(conn, limit=args.ghost_limit)
+            if n:
+                log(f"purge-ghosts: removed {n} movie/episode row(s) with missing files")
+    finally:
+        conn.close()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
