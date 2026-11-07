@@ -38,3 +38,13 @@ Downloads only when `ensure-jellyfin-media-mount.sh` passes (marker `.jellyfin-e
 `*arr` CustomScript connections: `register_arr_notifications.py` (called from thin `register-arr-*.sh` wrappers).
 
 Verify: `./stack-verify.sh`
+
+## Jellyfin database helpers
+
+| Module | Role |
+|--------|------|
+| `jellyfin_db_lib.py` | SQLite purge/sanitize (`JELLYFIN_DB` from `arr_common`) |
+| `jellyfin-delete-guard.py` | CLI + maintenance steps |
+| `jellyfin-delete-webhook.py` | ItemDeleted / PlaybackStart listener |
+
+Paths: `JELLYFIN_DB`, `JELLYFIN_CONFIG_ROOT` in `arr_common.py` / `stack-paths.sh`.

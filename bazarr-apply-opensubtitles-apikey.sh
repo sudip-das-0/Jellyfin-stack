@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
-# LinuxServer Bazarr hardcodes a default OpenSubtitles API key in get_providers.py;
-# inject the key from config.yaml after the container is running.
+# Purpose: Inject OpenSubtitles API key into Bazarr container after start.
+# Runs: register-stack-hooks.sh
 set -euo pipefail
+# shellcheck source=stack-paths.sh
+source "$(dirname "$0")/stack-paths.sh"
 
-CFG=/home/devdas/arr/config/bazarr/config/config.yaml
+CFG="$BAZARR_CONFIG"
 KEY=$(grep -A8 '^opensubtitlescom:' "$CFG" | grep 'api_key:' | awk '{print $2}')
 [[ -n "$KEY" ]] || { echo "No opensubtitlescom.api_key in $CFG" >&2; exit 1; }
 

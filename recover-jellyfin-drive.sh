@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Remount the jellyfin SSD (if unplugged/re-enumerated) and restart containers that bind /mnt/jellyfin.
+# Purpose: Remount jellyfin SSD, restart stack, refresh *arr/qBit, optional Jellyfin DB guard.
+# Runs: manual after unplug | RECOVER_SKIP_JELLYFIN=1 to skip jellyfin container restart
 set -euo pipefail
 # shellcheck source=stack-paths.sh
 source "$(dirname "$0")/stack-paths.sh"

@@ -34,6 +34,9 @@ Live scripts: `/mnt/jellyfin/scripts/`; import hooks in `scripts/hooks/` (mounte
 | `apply-english-audio-preference.sh` | Applies `media-lang-policy.py` to Bazarr + Jellyfin |
 | `apply-media-language-policy.sh` | **`--full`**: globals + existing library (Bazarr search, queue missing `.eng.srt`). **`--settings-only`**: globals only (used on stack reset) |
 | `jellyfin-db-trim.sh` | Jellyfin DB cleanup (legacy `/media`, phantom movies, orphans); alias: `jellyfin-fix-phantom-movies.sh` |
+| `jellyfin_db_lib.py` | Shared Jellyfin SQLite helpers |
+| `jellyfin-delete-guard.py` | UserData sanitize + ghost BaseItems (`download-maintenance.sh`) |
+| `jellyfin-delete-webhook.py` | Webhook listener (`jellyfin-delete-webhook.service`) |
 
 ## Import pipeline (per file)
 

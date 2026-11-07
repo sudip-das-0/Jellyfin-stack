@@ -1,15 +1,24 @@
 #!/usr/bin/env python3
-"""Jellyfin SQLite helpers: safe purge of movies/episodes and UserData sanitization."""
+"""Jellyfin SQLite helpers: safe purge of movies/episodes and UserData sanitization.
+
+Used by jellyfin-delete-guard.py, jellyfin-delete-webhook.py, jellyfin-db-trim.sh.
+"""
 from __future__ import annotations
 
 import json
 import os
 import sqlite3
+import sys
 from pathlib import Path
 from typing import Any, Iterable
 
-DB = Path(os.environ.get("JELLYFIN_DB", "/mnt/jellyfin/jellyfin/config/data/jellyfin.db"))
-HOST_ROOT = Path(os.environ.get("JELLYFIN_HOST_ROOT", "/mnt/jellyfin"))
+_SCRIPTS = Path(__file__).resolve().parent
+if str(_SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS))
+from arr_common import JELLYFIN_DB, JELLYFIN_MNT  # noqa: E402
+
+DB = Path(os.environ.get("JELLYFIN_DB", str(JELLYFIN_DB)))
+HOST_ROOT = Path(os.environ.get("JELLYFIN_HOST_ROOT", str(JELLYFIN_MNT)))
 
 MEDIA_TYPES = ("%Movie%", "%Episode%")
 

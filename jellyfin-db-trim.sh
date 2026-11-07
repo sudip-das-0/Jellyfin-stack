@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
-# Jellyfin DB + library path cleanup (legacy /media index, phantom movies, orphans).
+# Purpose: Jellyfin DB + library path cleanup (phantom movies, orphans, mblinks).
+# Runs: manual (stops Jellyfin container for offline DB work when needed)
 set -euo pipefail
+# shellcheck source=stack-paths.sh
+source "$(dirname "$0")/stack-paths.sh"
 
-DB=/mnt/jellyfin/jellyfin/config/data/jellyfin.db
-CONFIG_ROOT=/mnt/jellyfin/jellyfin/config/root/default
-JELLYFIN_URL="${JELLYFIN_URL:-http://127.0.0.1:8096}"
+DB="$JELLYFIN_DB"
+CONFIG_ROOT="${JELLYFIN_CONFIG_ROOT}/root/default"
 NEED_STOP=0
 
 stop_jellyfin() {
@@ -41,9 +43,9 @@ fix_mblinks() {
 }
 
 fix_library_paths_in_db() {
-  python3 <<'PY'
-import json, sqlite3
-db = sqlite3.connect("/mnt/jellyfin/jellyfin/config/data/jellyfin.db")
+  python3 - "$DB" <<'PY'
+import json, sqlite3, sys
+db = sqlite3.connect(sys.argv[1])
 rows = db.execute(
     "SELECT Id, Data FROM BaseItems WHERE Type LIKE '%CollectionFolder%' AND Data IS NOT NULL"
 ).fetchall()
@@ -107,11 +109,11 @@ trim_sqlite() {
 }
 
 jellyfin_db_offline_maintenance() {
-  python3 <<'PY'
+  python3 <<PY
 import sys
 from pathlib import Path
 
-sys.path.insert(0, "/mnt/jellyfin/scripts")
+sys.path.insert(0, "${SCRIPTS_ROOT}")
 from jellyfin_db_lib import connect, prune_orphan_foreign_keys, sanitize_userdata, trim_missing_media_baseitems
 
 db = connect()
@@ -136,8 +138,6 @@ PY
 }
 
 trim_lg_queue_state() {
-  # shellcheck source=stack-paths.sh
-  source /mnt/jellyfin/scripts/stack-paths.sh
   local RETRIES=$LG_TV_RETRIES
   [[ -f "$RETRIES" ]] || return 0
   local tmp removed=0

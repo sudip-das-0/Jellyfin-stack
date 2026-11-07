@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
-# English subtitle profile for all Sonarr/Radarr items + backfill search for existing files.
-# Online providers: free only (NapiProjekt, subf2m, Animetosho) — no OpenSubtitles VIP/paid APIs.
+# Purpose: English subtitle profile + backfill (Bazarr free providers only).
+# Runs: register-stack-hooks.sh
 set -euo pipefail
+# shellcheck source=stack-paths.sh
+source "$(dirname "$0")/stack-paths.sh"
 
-BAZ_KEY=$(grep -A2 '^auth:' /home/devdas/arr/config/bazarr/config/config.yaml | grep apikey | awk '{print $2}')
-SON_KEY=$(grep -oP '(?<=<ApiKey>)[^<]+' /home/devdas/arr/config/sonarr/config.xml)
-RAD_KEY=$(grep -oP '(?<=<ApiKey>)[^<]+' /home/devdas/arr/config/radarr/config.xml)
+BAZ_KEY=$(read_bazarr_api_key)
+SON_KEY=$(read_arr_api_key "$SONARR_CONFIG")
+RAD_KEY=$(read_arr_api_key "$RADARR_CONFIG")
 BASE=http://127.0.0.1:6767/api
 PROFILE=1
 

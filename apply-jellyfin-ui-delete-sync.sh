@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
-# Jellyfin UI delete → Sonarr/Radarr unmonitor (Webhook plugin + local listener).
+# Purpose: Jellyfin UI delete → *arr unmonitor (Webhook plugin + delete guard listener).
+# Runs: manual | register-stack-hooks.sh
 set -euo pipefail
+# shellcheck source=stack-paths.sh
+source "$(dirname "$0")/stack-paths.sh"
 
-DIR=$(dirname "$(readlink -f "$0")")
-JELLYFIN_DB=/mnt/jellyfin/jellyfin/config/data/jellyfin.db
+DIR="$SCRIPTS_ROOT"
 PLUGIN_GUID=71552a5a5c5c4350a2aeebe451a30173
 PLUGIN_VERSION=22.0.0.0
 WEBHOOK_URL="http://127.0.0.1:9407/"

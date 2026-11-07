@@ -2,7 +2,9 @@
 # Apply Intel QSV defaults across the stack (encoding.xml + LG optimize systemd + verify).
 set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ENC=/mnt/jellyfin/jellyfin/config/config/encoding.xml
+# shellcheck source=stack-paths.sh
+source "${DIR}/stack-paths.sh"
+ENC="${JELLYFIN_CONFIG_ROOT}/config/encoding.xml"
 USER_UNIT="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/lg-tv-optimize.service"
 REPO_UNIT="$DIR/systemd/user/lg-tv-optimize.service"
 

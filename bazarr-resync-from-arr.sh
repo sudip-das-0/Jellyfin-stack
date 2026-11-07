@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
-# Rebuild Bazarr's Sonarr/Radarr mirror when the SQLite DB is stale (FOREIGN KEY errors).
-# Safe: keeps language profiles and provider settings; drops cached series/movies/episodes.
+# Purpose: Rebuild Bazarr *arr mirror after FK/sync errors.
+# Runs: manual
 set -euo pipefail
+# shellcheck source=stack-paths.sh
+source "$(dirname "$0")/stack-paths.sh"
 
 DIR=$(dirname "$(readlink -f "$0")")
-BAZ_DB=/home/devdas/arr/config/bazarr/db/bazarr.db
-BAZ_KEY=$(grep -A2 '^auth:' /home/devdas/arr/config/bazarr/config/config.yaml | grep apikey | awk '{print $2}')
+BAZ_DB="$BAZARR_DB"
+BAZ_KEY=$(read_bazarr_api_key)
 BASE=http://127.0.0.1:6767/api
 
 echo "Stopping Bazarr..."

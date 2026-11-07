@@ -1,12 +1,16 @@
 #!/usr/bin/env bash
-# Apply media-lang-policy.py: English subtitles; audio langs eng/jpn/kor/hin/ben for grabs/remux.
+# Purpose: Subtitle/audio language policy (Bazarr + Jellyfin + *arr formats).
+# Runs: register-stack-hooks.sh
 set -euo pipefail
+# shellcheck source=stack-paths.sh
+source "$(dirname "$0")/stack-paths.sh"
 
-POLICY=/mnt/jellyfin/scripts/media-lang-policy.py
-/usr/bin/python3 /mnt/jellyfin/scripts/apply-tv-direct-play-formats.py
+POLICY="${SCRIPTS_ROOT}/media-lang-policy.py"
+/usr/bin/python3 "${SCRIPTS_ROOT}/apply-tv-direct-play-formats.py"
 
-SON=$(grep -oP '(?<=<ApiKey>)[^<]+' /home/devdas/arr/config/sonarr/config.xml)
-RAD=$(grep -oP '(?<=<ApiKey>)[^<]+' /home/devdas/arr/config/radarr/config.xml)
+SON=$(read_arr_api_key "$SONARR_CONFIG")
+RAD=$(read_arr_api_key "$RADARR_CONFIG")
+export BAZARR_DB BAZARR_CONFIG
 
 python3 <<PY
 import importlib.util
@@ -16,7 +20,8 @@ spec = importlib.util.spec_from_file_location("mlp", "$POLICY")
 mlp = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mlp)
 
-BAZARR_DB = "/home/devdas/arr/config/bazarr/db/bazarr.db"
+import os
+BAZARR_DB = os.environ["BAZARR_DB"]
 items = [
     {
         "language": c,
@@ -119,7 +124,7 @@ for rel in (
     )
 PY
 
-sqlite3 /mnt/jellyfin/jellyfin/config/data/jellyfin.db <<'SQL'
+sqlite3 "$JELLYFIN_DB" <<'SQL'
 UPDATE Users
 SET AudioLanguagePreference = 'eng',
     SubtitleLanguagePreference = 'eng',
@@ -132,9 +137,10 @@ SQL
 
 python3 <<'PY'
 from pathlib import Path
+import os
 import re
 
-cfg = Path("/home/devdas/arr/config/bazarr/config/config.yaml")
+cfg = Path(os.environ["BAZARR_CONFIG"])
 text = cfg.read_text(encoding="utf-8")
 replacements = {
     r"^  serie_default_profile: .*$": "  serie_default_profile: 1",
@@ -148,7 +154,7 @@ cfg.write_text(text, encoding="utf-8")
 print("Bazarr defaults: profileId=1 (English subtitles), single_language=true, use_embedded_subs=false")
 PY
 
-BAZ_KEY=$(grep -A2 '^auth:' /home/devdas/arr/config/bazarr/config/config.yaml | grep apikey | awk '{print $2}')
+BAZ_KEY=$(read_bazarr_api_key)
 curl -sS -X POST -H "X-Api-Key: $BAZ_KEY" "http://127.0.0.1:6767/api/system/tasks?taskid=update_series" -o /dev/null
 curl -sS -X POST -H "X-Api-Key: $BAZ_KEY" "http://127.0.0.1:6767/api/system/tasks?taskid=update_movies" -o /dev/null
 docker restart bazarr >/dev/null 2>&1 || true

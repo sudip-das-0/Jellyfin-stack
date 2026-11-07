@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
-# Install/configure Jellyfin Open Subtitles plugin (same OpenSubtitles.com account as Bazarr).
+# Purpose: Jellyfin Open Subtitles plugin (shared OS.com account with Bazarr).
+# Runs: register-stack-hooks.sh
 set -euo pipefail
+# shellcheck source=stack-paths.sh
+source "$(dirname "$0")/stack-paths.sh"
 
-CFG=/home/devdas/arr/config/bazarr/config/config.yaml
-JELLYFIN_DB=/mnt/jellyfin/jellyfin/config/data/jellyfin.db
+CFG="$BAZARR_CONFIG"
+JELLYFIN_DB="$JELLYFIN_DB"
 PLUGIN_GUID=4b9ed42f518548b598036ff2989014c4
 PLUGIN_VERSION=25.0.0.0
 

@@ -10,8 +10,10 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+_SCRIPTS = Path(__file__).resolve().parent
+sys.path.insert(0, str(_SCRIPTS))
 
+from arr_common import MEDIA_ROOT, SCRIPTS_ROOT  # noqa: E402
 from jellyfin_db_lib import (  # noqa: E402
     connect,
     extract_webhook_targets,
@@ -23,9 +25,10 @@ from jellyfin_db_lib import (  # noqa: E402
 _LAST_SANITIZE = 0.0
 
 LISTEN = ("127.0.0.1", 9407)
-SYNC = Path("/mnt/jellyfin/scripts/sync-manual-deletes.py")
-GUARD = Path("/mnt/jellyfin/scripts/jellyfin-delete-guard.py")
-MEDIA_MARKERS = ("/mnt/jellyfin/media/", "/media/", "/data/media/")
+SYNC = SCRIPTS_ROOT / "sync-manual-deletes.py"
+GUARD = SCRIPTS_ROOT / "jellyfin-delete-guard.py"
+_MEDIA = str(MEDIA_ROOT).rstrip("/") + "/"
+MEDIA_MARKERS = (_MEDIA, "/media/", "/data/media/")
 PATH_KEYS = (
     "path",
     "itempath",

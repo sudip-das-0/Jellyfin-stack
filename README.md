@@ -76,17 +76,22 @@ After Sonarr/Radarr finish importing, episodes/movies are **unmonitored** so the
 ## Maintenance chain (`download-maintenance.sh`)
 
 1. `prune-stall-logs.py` — rotate/trim logs (14-day `recovery-*.log`, tail LG optimize log)
-2. `sync-manual-deletes.py` — unmonitor titles removed from disk (Jellyfin UI / manual deletes)
-3. `unmonitor-on-import.py --drain-queue` — unmonitor episodes/movies after import (backstop for hooks)
-4. `queue-dedupe.py` — one torrent per episode/movie (updates shared `stall-recovery/state.json` on trim)
-5. `torrent-stall-recovery.py` — 12h no **download** progress **in active qBit slot** → 2 alternates; qBit job removed **without** deleting files → fail + blocklist if both alternates stall
-6. `sonarr-prune-command-queue.py` — cap queued `SeasonSearch` commands so imports can run
-7. `reconcile-torrents-library.py` — drop torrent copies already in `media/`; import orphans; LG + sidecars (`RECONCILE_IMPORT_LIMIT`, default 15)
-8. `cleanup-qbit-missing.py` — `missingFiles` / dead 0-seed torrents
-9. `cleanup-qbit-completed.py` — remove finished torrents (2h post-complete grace via `QBIT_COMPLETED_PROTECT_SEC`)
-10. `cleanup-partial-series.py` — Sonarr + Radarr bad queue rows; orphan torrent dirs
-11. `lg-tv-topup-queue.sh` — enqueue library files missing from LG optimize queue
-12. `series-season-completeness.py` — exit 1 on partial monitored seasons → `sonarr-queue-missing-if-due.py` (MissingEpisodeSearch, 6h cooldown; manual per-season: `sonarr-search-incomplete-seasons.py`, max `SONARR_MAX_SEASON_SEARCH_PER_RUN` per run)
+2. `jellyfin-delete-guard.py --sanitize-all` — strip corrupt Jellyfin UserData keys (safe online)
+3. `jellyfin-delete-guard.py --purge-ghosts` — remove phantom BaseItems after UI deletes
+4. `sync-manual-deletes.py` — unmonitor titles removed from disk (Jellyfin UI / manual deletes)
+5. `unmonitor-on-import.py --drain-queue` — unmonitor episodes/movies after import (backstop for hooks)
+6. `queue-dedupe.py` — one torrent per episode/movie (updates shared `stall-recovery/state.json` on trim)
+7. `torrent-stall-recovery.py` — 12h no **download** progress **in active qBit slot** → 2 alternates; qBit job removed **without** deleting files → fail + blocklist if both alternates stall
+8. `sonarr-prune-command-queue.py` — cap queued `SeasonSearch` commands so imports can run
+9. `reconcile-torrents-library.py` — drop torrent copies already in `media/`; import orphans; LG + sidecars (`RECONCILE_IMPORT_LIMIT`, default 15)
+10. `cleanup-qbit-missing.py` — `missingFiles` / dead 0-seed torrents
+11. `cleanup-qbit-completed.py` — remove finished torrents (2h post-complete grace via `QBIT_COMPLETED_PROTECT_SEC`)
+12. `cleanup-partial-series.py` — Sonarr + Radarr bad queue rows; orphan torrent dirs
+13. `lg-tv-topup-queue.sh` — enqueue library files missing from LG optimize queue
+14. Jellyfin episode image refresh helpers
+15. `series-season-completeness.py` — exit 1 on partial monitored seasons → `sonarr-queue-missing-if-due.py` (MissingEpisodeSearch, 6h cooldown; manual per-season: `sonarr-search-incomplete-seasons.py`, max `SONARR_MAX_SEASON_SEARCH_PER_RUN` per run)
+
+Cleanup checklist: [`docs/CLEANUP-PLAN.md`](docs/CLEANUP-PLAN.md)
 
 Manual missing search: `queue-missing-downloads.py` (`--tv-only` / `--movies-only`). Failed grabs: `retry-failed-downloads.py` (same flags; clears blocklist unless `--keep-blocklist`).
 

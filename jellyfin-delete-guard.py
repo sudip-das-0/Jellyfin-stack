@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Keep Jellyfin DB in sync when movies/episodes are deleted from the UI."""
+"""Keep Jellyfin DB in sync when movies/episodes are deleted from the UI.
+
+Runs: download-maintenance.sh, recover-jellyfin-drive.sh, jellyfin-delete-webhook (ItemDeleted).
+Depends: jellyfin_db_lib.py, arr_common.STALL_LOG_DIR
+"""
 from __future__ import annotations
 
 import argparse
@@ -8,6 +12,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from arr_common import STALL_LOG_DIR  # noqa: E402
 from jellyfin_db_lib import (  # noqa: E402
     connect,
     finish_delete,
@@ -16,7 +21,7 @@ from jellyfin_db_lib import (  # noqa: E402
     sanitize_userdata,
 )
 
-LOG = Path("/mnt/jellyfin/logs/stall-recovery/jellyfin-delete-guard.log")
+LOG = STALL_LOG_DIR / "jellyfin-delete-guard.log"
 
 
 def log(msg: str) -> None:
