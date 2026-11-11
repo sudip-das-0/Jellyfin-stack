@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Remux/transcode media for LG WebOS Jellyfin: H.264 + stereo AAC, no embedded subs.
-# Video: Intel QSV/VAAPI decode+encode first; libx264 last. Target LG_TV_MAXRATE (default 15M).
+# Video: Intel VAAPI decode+encode first, QSV fallback, libx264 last. Target LG_TV_MAXRATE (default 15M).
 # Storage: skip when <= LG_TV_MAX_GIB_PER_HOUR (default 5 GiB/h); shrink/transcode above that.
 # H.264 above target GiB/h: HW transcode when LG_TV_H264_SHRINK=1; else remux copy only when under target.
 # AV1: all HW tiers first; libx264 only when LG_TV_AV1_ALLOW_CPU=1 (after LG_TV_AV1_HW_ATTEMPTS queue failures).
@@ -419,6 +419,23 @@ hevc_to_h264_tiered() {
   qsv_enc="-c:v h264_qsv -preset veryfast -async_depth 8 -bf 0 -g 240 -look_ahead 0 \
     -global_quality 24 -maxrate ${LG_TV_MAXRATE} -bufsize ${LG_TV_BUFSIZE}"
 
+  run_jellyfin_encode vaapi-hw \
+    "/usr/lib/jellyfin-ffmpeg/ffmpeg -y -hide_banner -loglevel error \
+      -init_hw_device vaapi=va:${LG_TV_DRI_NODE},driver=${LG_TV_DRI_DRIVER} \
+      -hwaccel vaapi -hwaccel_output_format vaapi \
+      -i $Q \
+      -map 0:v:0 -vf 'scale_vaapi=format=nv12' -c:v h264_vaapi -qp 24 -maxrate ${LG_TV_MAXRATE} -bufsize ${LG_TV_BUFSIZE} \
+      $AUD_TAIL \
+      $O" && return 0
+
+  run_jellyfin_encode vaapi-sw \
+    "/usr/lib/jellyfin-ffmpeg/ffmpeg -y -hide_banner -loglevel error \
+      -init_hw_device vaapi=va:${LG_TV_DRI_NODE},driver=${LG_TV_DRI_DRIVER} \
+      -i $Q \
+      -map 0:v:0 -vf 'format=nv12,hwupload' -c:v h264_vaapi -qp 24 -maxrate ${LG_TV_MAXRATE} -bufsize ${LG_TV_BUFSIZE} \
+      $AUD_TAIL \
+      $O" && return 0
+
   run_jellyfin_encode hevc-qsv \
     "/usr/lib/jellyfin-ffmpeg/ffmpeg -y -hide_banner -loglevel error \
       -init_hw_device vaapi=va:${LG_TV_DRI_NODE},driver=${LG_TV_DRI_DRIVER} \
@@ -451,23 +468,6 @@ hevc_to_h264_tiered() {
       $AUD_TAIL \
       $O" && return 0
 
-  run_jellyfin_encode vaapi-hw \
-    "/usr/lib/jellyfin-ffmpeg/ffmpeg -y -hide_banner -loglevel error \
-      -init_hw_device vaapi=va:${LG_TV_DRI_NODE},driver=${LG_TV_DRI_DRIVER} \
-      -hwaccel vaapi -hwaccel_output_format vaapi \
-      -i $Q \
-      -map 0:v:0 -vf 'scale_vaapi=format=nv12' -c:v h264_vaapi -qp 24 -maxrate ${LG_TV_MAXRATE} -bufsize ${LG_TV_BUFSIZE} \
-      $AUD_TAIL \
-      $O" && return 0
-
-  run_jellyfin_encode vaapi-sw \
-    "/usr/lib/jellyfin-ffmpeg/ffmpeg -y -hide_banner -loglevel error \
-      -init_hw_device vaapi=va:${LG_TV_DRI_NODE},driver=${LG_TV_DRI_DRIVER} \
-      -i $Q \
-      -map 0:v:0 -vf 'format=nv12,hwupload' -c:v h264_vaapi -qp 24 -maxrate ${LG_TV_MAXRATE} -bufsize ${LG_TV_BUFSIZE} \
-      $AUD_TAIL \
-      $O" && return 0
-
   if allow_cpu_libx264; then
     run_jellyfin_encode libx264 \
       "/usr/lib/jellyfin-ffmpeg/ffmpeg -y -hide_banner -loglevel error \
@@ -486,14 +486,12 @@ h264_to_h264_tiered() {
   qsv_enc="-c:v h264_qsv -preset veryfast -async_depth 8 -bf 0 -g 240 -look_ahead 0 \
     -global_quality 24 -maxrate ${LG_TV_MAXRATE} -bufsize ${LG_TV_BUFSIZE}"
 
-  run_jellyfin_encode h264-shrink-qsv \
+  run_jellyfin_encode h264-shrink-vaapi-hw \
     "/usr/lib/jellyfin-ffmpeg/ffmpeg -y -hide_banner -loglevel error \
       -init_hw_device vaapi=va:${LG_TV_DRI_NODE},driver=${LG_TV_DRI_DRIVER} \
-      -init_hw_device qsv=qs@va -filter_hw_device qs \
-      -hwaccel qsv -hwaccel_output_format qsv -c:v h264_qsv \
+      -hwaccel vaapi -hwaccel_output_format vaapi \
       -i $Q \
-      -map 0:v:0 -vf 'scale_qsv=format=nv12' \
-      $qsv_enc \
+      -map 0:v:0 -vf 'scale_vaapi=format=nv12' -c:v h264_vaapi -qp 24 -maxrate ${LG_TV_MAXRATE} -bufsize ${LG_TV_BUFSIZE} \
       $AUD_TAIL \
       $O" && return 0
 
@@ -508,12 +506,14 @@ h264_to_h264_tiered() {
       $AUD_TAIL \
       $O" && return 0
 
-  run_jellyfin_encode h264-shrink-vaapi-hw \
+  run_jellyfin_encode h264-shrink-qsv \
     "/usr/lib/jellyfin-ffmpeg/ffmpeg -y -hide_banner -loglevel error \
       -init_hw_device vaapi=va:${LG_TV_DRI_NODE},driver=${LG_TV_DRI_DRIVER} \
-      -hwaccel vaapi -hwaccel_output_format vaapi \
+      -init_hw_device qsv=qs@va -filter_hw_device qs \
+      -hwaccel qsv -hwaccel_output_format qsv -c:v h264_qsv \
       -i $Q \
-      -map 0:v:0 -vf 'scale_vaapi=format=nv12' -c:v h264_vaapi -qp 24 -maxrate ${LG_TV_MAXRATE} -bufsize ${LG_TV_BUFSIZE} \
+      -map 0:v:0 -vf 'scale_qsv=format=nv12' \
+      $qsv_enc \
       $AUD_TAIL \
       $O" && return 0
 
@@ -541,6 +541,23 @@ av1_to_h264_tiered() {
   local qsv_enc
   qsv_enc="-c:v h264_qsv -preset veryfast -async_depth 8 -bf 0 -g 240 -look_ahead 0 \
     -global_quality 24 -maxrate ${LG_TV_MAXRATE} -bufsize ${LG_TV_BUFSIZE}"
+
+  run_jellyfin_encode av1-vaapi-hw \
+    "/usr/lib/jellyfin-ffmpeg/ffmpeg -y -hide_banner -loglevel error \
+      -init_hw_device vaapi=va:${LG_TV_DRI_NODE},driver=${LG_TV_DRI_DRIVER} \
+      -hwaccel vaapi -hwaccel_output_format vaapi \
+      -i $Q \
+      -map 0:v:0 -vf 'scale_vaapi=format=nv12' -c:v h264_vaapi -qp 24 -maxrate ${LG_TV_MAXRATE} -bufsize ${LG_TV_BUFSIZE} \
+      $AUD_TAIL \
+      $O" && return 0
+
+  run_jellyfin_encode av1-vaapi-sw \
+    "/usr/lib/jellyfin-ffmpeg/ffmpeg -y -hide_banner -loglevel error \
+      -init_hw_device vaapi=va:${LG_TV_DRI_NODE},driver=${LG_TV_DRI_DRIVER} \
+      -i $Q \
+      -map 0:v:0 -vf 'format=nv12,hwupload' -c:v h264_vaapi -qp 24 -maxrate ${LG_TV_MAXRATE} -bufsize ${LG_TV_BUFSIZE} \
+      $AUD_TAIL \
+      $O" && return 0
 
   run_jellyfin_encode av1-qsv \
     "/usr/lib/jellyfin-ffmpeg/ffmpeg -y -hide_banner -loglevel error \
@@ -574,23 +591,6 @@ av1_to_h264_tiered() {
       $AUD_TAIL \
       $O" && return 0
 
-  run_jellyfin_encode av1-vaapi-hw \
-    "/usr/lib/jellyfin-ffmpeg/ffmpeg -y -hide_banner -loglevel error \
-      -init_hw_device vaapi=va:${LG_TV_DRI_NODE},driver=${LG_TV_DRI_DRIVER} \
-      -hwaccel vaapi -hwaccel_output_format vaapi \
-      -i $Q \
-      -map 0:v:0 -vf 'scale_vaapi=format=nv12' -c:v h264_vaapi -qp 24 -maxrate ${LG_TV_MAXRATE} -bufsize ${LG_TV_BUFSIZE} \
-      $AUD_TAIL \
-      $O" && return 0
-
-  run_jellyfin_encode av1-vaapi-sw \
-    "/usr/lib/jellyfin-ffmpeg/ffmpeg -y -hide_banner -loglevel error \
-      -init_hw_device vaapi=va:${LG_TV_DRI_NODE},driver=${LG_TV_DRI_DRIVER} \
-      -i $Q \
-      -map 0:v:0 -vf 'format=nv12,hwupload' -c:v h264_vaapi -qp 24 -maxrate ${LG_TV_MAXRATE} -bufsize ${LG_TV_BUFSIZE} \
-      $AUD_TAIL \
-      $O" && return 0
-
   if [[ "${LG_TV_AV1_ALLOW_CPU:-0}" == 1 ]] && allow_cpu_libx264; then
     log "AV1 HW tiers exhausted; trying libx264 (CPU) after prior queue failures: $src"
     run_jellyfin_encode libx264 \
@@ -609,6 +609,15 @@ vp9_to_h264_tiered() {
   local qsv_enc
   qsv_enc="-c:v h264_qsv -preset veryfast -async_depth 8 -bf 0 -g 240 -look_ahead 0 \
     -global_quality 24 -maxrate ${LG_TV_MAXRATE} -bufsize ${LG_TV_BUFSIZE}"
+
+  run_jellyfin_encode vp9-vaapi-hw \
+    "/usr/lib/jellyfin-ffmpeg/ffmpeg -y -hide_banner -loglevel error \
+      -init_hw_device vaapi=va:${LG_TV_DRI_NODE},driver=${LG_TV_DRI_DRIVER} \
+      -hwaccel vaapi -hwaccel_output_format vaapi \
+      -i $Q \
+      -map 0:v:0 -vf 'scale_vaapi=format=nv12' -c:v h264_vaapi -qp 24 -maxrate ${LG_TV_MAXRATE} -bufsize ${LG_TV_BUFSIZE} \
+      $AUD_TAIL \
+      $O" && return 0
 
   run_jellyfin_encode vp9-qsv \
     "/usr/lib/jellyfin-ffmpeg/ffmpeg -y -hide_banner -loglevel error \
@@ -632,15 +641,6 @@ vp9_to_h264_tiered() {
       $AUD_TAIL \
       $O" && return 0
 
-  run_jellyfin_encode vp9-vaapi-hw \
-    "/usr/lib/jellyfin-ffmpeg/ffmpeg -y -hide_banner -loglevel error \
-      -init_hw_device vaapi=va:${LG_TV_DRI_NODE},driver=${LG_TV_DRI_DRIVER} \
-      -hwaccel vaapi -hwaccel_output_format vaapi \
-      -i $Q \
-      -map 0:v:0 -vf 'scale_vaapi=format=nv12' -c:v h264_vaapi -qp 24 -maxrate ${LG_TV_MAXRATE} -bufsize ${LG_TV_BUFSIZE} \
-      $AUD_TAIL \
-      $O" && return 0
-
   if allow_cpu_libx264; then
     run_jellyfin_encode libx264 \
       "/usr/lib/jellyfin-ffmpeg/ffmpeg -y -hide_banner -loglevel error \
@@ -659,6 +659,15 @@ generic_to_h264_tiered() {
   qsv_enc="-c:v h264_qsv -preset veryfast -async_depth 8 -bf 0 -g 240 -look_ahead 0 \
     -global_quality 24 -maxrate ${LG_TV_MAXRATE} -bufsize ${LG_TV_BUFSIZE}"
 
+  run_jellyfin_encode generic-vaapi-enc \
+    "/usr/lib/jellyfin-ffmpeg/ffmpeg -y -hide_banner -loglevel error \
+      -init_hw_device vaapi=va:${LG_TV_DRI_NODE},driver=${LG_TV_DRI_DRIVER} \
+      -hwaccel vaapi -hwaccel_output_format vaapi \
+      -i $Q \
+      -map 0:v:0 -vf 'scale_vaapi=format=nv12' -c:v h264_vaapi -qp 24 -maxrate ${LG_TV_MAXRATE} -bufsize ${LG_TV_BUFSIZE} \
+      $AUD_TAIL \
+      $O" && return 0
+
   run_jellyfin_encode generic-vaapi-hw \
     "/usr/lib/jellyfin-ffmpeg/ffmpeg -y -hide_banner -loglevel error \
       -init_hw_device vaapi=va:${LG_TV_DRI_NODE},driver=${LG_TV_DRI_DRIVER} \
@@ -667,15 +676,6 @@ generic_to_h264_tiered() {
       -i $Q \
       -map 0:v:0 -vf 'scale_vaapi=format=nv12,hwmap=derive_device=qsv,format=qsv' \
       $qsv_enc \
-      $AUD_TAIL \
-      $O" && return 0
-
-  run_jellyfin_encode generic-vaapi-enc \
-    "/usr/lib/jellyfin-ffmpeg/ffmpeg -y -hide_banner -loglevel error \
-      -init_hw_device vaapi=va:${LG_TV_DRI_NODE},driver=${LG_TV_DRI_DRIVER} \
-      -hwaccel vaapi -hwaccel_output_format vaapi \
-      -i $Q \
-      -map 0:v:0 -vf 'scale_vaapi=format=nv12' -c:v h264_vaapi -qp 24 -maxrate ${LG_TV_MAXRATE} -bufsize ${LG_TV_BUFSIZE} \
       $AUD_TAIL \
       $O" && return 0
 

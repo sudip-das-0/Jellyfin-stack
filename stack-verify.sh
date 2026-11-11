@@ -221,10 +221,10 @@ if timeout 15 docker exec jellyfin test -e /dev/dri/renderD128 2>/dev/null; then
 else
   warn "Jellyfin renderD128 check failed (busy or no device)"
 fi
-if grep -q '<HardwareAccelerationType>qsv</HardwareAccelerationType>' /mnt/jellyfin/jellyfin/config/config/encoding.xml 2>/dev/null; then
-  ok "encoding.xml QSV"
+if grep -q '<HardwareAccelerationType>vaapi</HardwareAccelerationType>' /mnt/jellyfin/jellyfin/config/config/encoding.xml 2>/dev/null; then
+  ok "encoding.xml VAAPI"
 else
-  warn "encoding.xml not set to QSV"
+  warn "encoding.xml not set to VAAPI"
 fi
 ENC_XML=/mnt/jellyfin/jellyfin/config/config/encoding.xml
 if [[ -f "$ENC_XML" ]]; then
@@ -250,7 +250,7 @@ fi
 echo "=== LG optimize HW decode tiers ==="
 OPT_SCRIPT="$DIR/lg-tv/lg-tv-optimize-media.sh"
 if [[ -f "$OPT_SCRIPT" ]]; then
-  for needle in hevc-qsv av1-qsv vp9-qsv h264-remux-hw hwaccel; do
+  for needle in vaapi-hw hevc-qsv av1-vaapi-hw vp9-vaapi-hw h264-remux-hw hwaccel; do
     if grep -q "$needle" "$OPT_SCRIPT" 2>/dev/null; then
       ok "optimize script includes $needle"
     else

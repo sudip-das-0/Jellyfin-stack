@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Apply Intel QSV defaults across the stack (encoding.xml + LG optimize systemd + verify).
+# Apply Intel VAAPI-first HW transcode (encoding.xml + LG optimize systemd + verify).
+# QSV remains as fallback in lg-tv-optimize-media.sh.
 set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=stack-paths.sh
@@ -32,7 +33,7 @@ def set_text(tag, value):
         return
     el.text = value
 
-set_text("HardwareAccelerationType", "qsv")
+set_text("HardwareAccelerationType", "vaapi")
 set_text("VaapiDevice", "/dev/dri/renderD128")
 set_text("QsvDevice", "/dev/dri/renderD128")
 set_text("EnableHardwareEncoding", "true")
@@ -47,7 +48,7 @@ if hw is not None:
         s.text = c
 
 tree.write(path, encoding="utf-8", xml_declaration=True)
-print("encoding.xml: QSV + HW decode codecs updated")
+print("encoding.xml: VAAPI-first + HW decode codecs updated")
 PY
 }
 

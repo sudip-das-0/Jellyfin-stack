@@ -1,7 +1,7 @@
 # Jellyfin + *arr media stack — setup reference
 
 Last updated: 2026-11-11  
-LAN IP: confirm with `hostname -I`
+LAN IP: **192.168.0.175** (pinned on Wi‑Fi `Sonai 1`; DHCP may also show `192.168.0.229`)
 
 ---
 
@@ -275,11 +275,13 @@ Configured in **`/mnt/jellyfin/jellyfin/config/config/encoding.xml`** (also visi
 
 | Setting | Value | Why |
 |---------|--------|-----|
-| Hardware acceleration | **Intel Quick Sync (QSV)** | First choice for live transcodes; device `/dev/dri/renderD128` (Docker passes `/dev/dri`) |
-| Hardware decoding | **h264, hevc, vp9, vc1** | HEVC/VP9 rips decode on GPU instead of CPU |
+| Hardware acceleration | **VAAPI** | First choice for live transcodes; device `/dev/dri/renderD128` (Docker passes `/dev/dri`). QSV remains configured as fallback. |
+| Hardware decoding | **h264, hevc, av1, vp9, vc1** | HEVC/VP9/AV1 rips decode on GPU instead of CPU |
 | Transcode throttling | **Off** (`EnableThrottling`) | Can turn on in Dashboard if you want client-side buffering during peaks |
-| Hardware encoding | On (**H.264 QSV**) | When a transcode is unavoidable |
-| LG import pipeline | **QSV → VAAPI → libx264** | `lg-tv-optimize-media.sh` for HEVC→H.264; 4K allowed unless `LG_TV_MAX_HEIGHT` is set |
+| Hardware encoding | On (**H.264 VAAPI**) | When a transcode is unavoidable |
+| LG import pipeline | **VAAPI → QSV → libx264** | `lg-tv-optimize-media.sh` for HEVC→H.264; 4K allowed unless `LG_TV_MAX_HEIGHT` is set |
+| Live transcode directory | `/mnt/jellyfin/jellyfin/cache/transcodes` | Container path `/cache/transcodes` (temporary segments while watching) |
+| LG optimize temp | `/mnt/jellyfin/jellyfin/cache/lgopt` | Container path `/cache/lgopt` (batch remux/transcode before in-place replace) |
 
 ### Prefer direct play on the LG G4 (biggest win)
 

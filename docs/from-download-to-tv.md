@@ -46,11 +46,11 @@ Look in `/mnt/jellyfin/logs/stall-recovery/lg-tv-optimize.log` for:
 - `encode tier ok (h264-remux` / `h264-remux-audiocopy` / `h264-remux-hw`
 - `encode tier recovered` ← ffmpeg failed, file still replaced
 
-**2. HEVC / AV1 / VP9 → H.264 transcode (QSV)**
+**2. HEVC / AV1 / VP9 → H.264 transcode (VAAPI first, QSV fallback)**
 
-Full re-encode (`h264_qsv`, ~15 Mbps cap). Can look softer; rare encoder glitches. Less often “skip” than remux, but it **does** replace the original (except names with `REMUX` or large lossless audio, which are skipped).
+Full re-encode (`h264_vaapi`, then `h264_qsv`, ~15 Mbps cap). Can look softer; rare encoder glitches. Less often “skip” than remux, but it **does** replace the original (except names with `REMUX` or large lossless audio, which are skipped).
 
-Log: `encode tier ok (hevc-qsv` / `av1-qsv` / `h264 HW shrink`.
+Log: `encode tier ok (vaapi-hw` / `hevc-qsv` / `av1-vaapi-hw` / `h264 HW shrink`.
 
 **3. `.m2ts` / `.ts` → `.mkv`**
 
@@ -63,6 +63,8 @@ If *arr imported before the torrent was whole, the file was already broken. Opti
 **5. Live Jellyfin transcode on the TV**
 
 If the LG app cannot direct-play (wrong codec/container), Jellyfin transcodes **while you watch**. That can skip even when the file on disk is fine. Dashboard → Activity: **Direct Play** vs **Transcode**.
+
+Live transcode files go to **`/mnt/jellyfin/jellyfin/cache/transcodes`** (container `/cache/transcodes`). LG optimize writes temps to **`/mnt/jellyfin/jellyfin/cache/lgopt`** (container `/cache/lgopt`), then replaces the library file.
 
 ## What does *not* rewrite video
 

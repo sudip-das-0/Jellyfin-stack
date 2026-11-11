@@ -4,6 +4,22 @@ Operator scripts for Docker *arr + Jellyfin. Live copy: `/mnt/jellyfin/scripts/`
 
 Runtime app configs are **not** in git (`~/arr/config/`). Logs: `/mnt/jellyfin/logs/`.
 
+## LAN URLs
+
+Host LAN IP is pinned at **192.168.0.175** (Wi‑Fi profile `Sonai 1`). Point TVs, phones, and browsers here — DHCP may also assign `192.168.0.229`, which is the same machine but is **not** what clients are configured to use.
+
+On this PC, `http://127.0.0.1:<port>` works too.
+
+| Service | URL |
+|---------|-----|
+| Jellyfin | http://192.168.0.175:8096 |
+| Seerr (requests) | http://192.168.0.175:5055 |
+| qBittorrent | http://192.168.0.175:8080 |
+| Radarr (movies) | http://192.168.0.175:7878 |
+| Sonarr (TV / anime) | http://192.168.0.175:8989 |
+| Prowlarr (indexers) | http://192.168.0.175:9696 |
+| Bazarr (subtitles) | http://192.168.0.175:6767 |
+
 ## Layout
 
 | Path | Role |
@@ -14,7 +30,7 @@ Runtime app configs are **not** in git (`~/arr/config/`). Logs: `/mnt/jellyfin/l
 | `maintenance/` | 30‑min download pipeline (dedupe, stall, import, cleanup) |
 | `lg-tv/` | LG WebOS remux/transcode queue |
 | `jellyfin/` | DB delete-guard, episode images, webhook listener |
-| `apply/` | One-shot policy (no-seed, LAPSE, QSV, hook registration) |
+| `apply/` | One-shot policy (no-seed, LAPSE, VAAPI transcode, hook registration) |
 | `temp/` | Host-only extras (gitignored): show-specific policies, blocked titles |
 | `host/` | SSD mount guard / recover |
 | `systemd/user/` | User units (copy to `~/.config/systemd/user/`) |
