@@ -37,7 +37,7 @@ def main() -> int:
     parser.add_argument(
         "--sanitize-all",
         action="store_true",
-        help="Remove corrupt UserData keys library-wide (safe while Jellyfin is running)",
+        help="Drop duplicate TMDB/IMDb UserData copies; keep item-GUID continue-watching rows",
     )
     parser.add_argument(
         "--item-id",

@@ -88,7 +88,7 @@ systemctl --user enable --now jellyfin-delete-webhook.service
 
 /usr/bin/python3 "$DIR/lib/register_arr_notifications.py" delete-sync
 
-echo "Done. Webhook also runs jellyfin-delete-guard (UserData sanitization + DB ghost purge on ItemDeleted)."
-echo "PlaybackStart events clear bad UserData before you delete from the UI."
+echo "Done. Webhook also runs jellyfin-delete-guard (duplicate UserData keys + DB ghost purge on ItemDeleted)."
+echo "PlaybackStart only drops TMDB/IMDb UserData copies; item-GUID continue-watching rows are kept."
 echo "When deleting items check «Delete from server» so files are removed from disk."
 echo "Webhook listener: systemctl --user status jellyfin-delete-webhook.service"

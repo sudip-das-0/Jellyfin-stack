@@ -24,6 +24,9 @@ MARKER = HOST_ROOT / ".jellyfin-external-drive"
 MEDIA_TYPES = ("%Movie%", "%Episode%")
 
 # Known-good UserData keys (Jellyfin core + common plugins).
+# Jellyfin 12 stores Continue Watching on the item-GUID CustomDataKey (same as
+# ItemId, often different casing). TMDB/IMDb copies of that row break UI delete
+# and are safe to drop; deleting the GUID row wipes resume progress.
 ALLOWED_USERDATA_KEYS = frozenset(
     {
         "",
@@ -82,16 +85,20 @@ def connect() -> sqlite3.Connection:
     return conn
 
 
-def is_corrupt_userdata_key(key: str) -> bool:
+def is_corrupt_userdata_key(key: str, item_id: str | None = None) -> bool:
+    """True for duplicate provider-id rows, not the real watch-progress row."""
     if key in ALLOWED_USERDATA_KEYS:
+        return False
+    if item_id and key.casefold() == item_id.casefold():
+        return False
+    # Jellyfin 12's canonical progress row is CustomDataKey == ItemId (a UUID).
+    if len(key) == 36 and key.count("-") == 4:
         return False
     if key.startswith("tt") and len(key) > 2:
         rest = key[2:]
         if rest.isdigit() or (rest.replace("0", "").isdigit() and rest):
             return True
     if key.isdigit():
-        return True
-    if len(key) == 36 and key.count("-") == 4:
         return True
     return False
 
@@ -117,7 +124,7 @@ def sanitize_userdata(
             "SELECT CustomDataKey FROM UserData WHERE ItemId = ?",
             (item_id.upper(),),
         ).fetchall()
-        bad = [r[0] for r in rows if is_corrupt_userdata_key(r[0])]
+        bad = [r[0] for r in rows if is_corrupt_userdata_key(r[0], item_id)]
         if not bad:
             return 0
         ph = ",".join("?" for _ in bad)
@@ -131,7 +138,7 @@ def sanitize_userdata(
     cur = conn.execute("SELECT ItemId, CustomDataKey FROM UserData")
     to_drop: list[tuple[str, str]] = []
     for iid, key in cur.fetchall():
-        if is_corrupt_userdata_key(key):
+        if is_corrupt_userdata_key(key, iid):
             to_drop.append((iid, key))
     if not to_drop:
         return 0
