@@ -20,6 +20,8 @@ Runtime app configs are **not** in git (`~/arr/config/`). Logs: `/mnt/jellyfin/l
 | `docs/` | Setup + download behaviour |
 | `archive/` | Finished HDD→SSD migration |
 
+**New PC:** plug in the SSD, then `./setup-new-host.sh` (packages, `/mnt/jellyfin` mount, Docker, systemd). Copy `~/arr/config` from the old machine afterwards.
+
 Start: `cd /mnt/jellyfin/scripts && docker compose up -d` or `systemctl --user start media-stack.service`.
 
 Re-wire *arr hooks after a stack reset: `./register-stack-hooks.sh`  
@@ -33,4 +35,5 @@ Check wiring: `./stack-verify.sh`
 4. `lg-tv-optimize` remuxes/transcodes to H.264 + stereo AAC for LG direct play (skips REMUX / large lossless).
 5. Every 30 min, `download-maintenance.sh` dedupes queues, recovers 12h stalls, imports orphans, and syncs deletes.
 
-Details: [`docs/jellyfin-download-behaviour.md`](docs/jellyfin-download-behaviour.md)
+What rewrites the video (skipping/corruption): [`docs/from-download-to-tv.md`](docs/from-download-to-tv.md)  
+Download rules: [`docs/jellyfin-download-behaviour.md`](docs/jellyfin-download-behaviour.md)

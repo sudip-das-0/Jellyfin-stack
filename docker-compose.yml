@@ -2,7 +2,7 @@
 # Legacy HDD (read-only archive): /mnt/jellyfin-hdd after migrate-hdd-to-ssd.sh finish.
 # Git repo + operator docs: /mnt/jellyfin/scripts/README.md
 # Docker configs (not in git): host path via ARR_CONFIG_ROOT in `.env` (default below).
-# Backup copy: docs/jellyfin-docker-compose.yml.backup
+# New host: ./setup-new-host.sh
 
 services:
   prowlarr:
