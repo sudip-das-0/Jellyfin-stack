@@ -4,7 +4,7 @@ set -euo pipefail
 
 DIR=$(dirname "$(readlink -f "$0")")
 # shellcheck source=stack-paths.sh
-source "$DIR/stack-paths.sh"
+source "$DIR/lib/stack-paths.sh"
 ERR=0
 warn() { echo "WARN: $*" >&2; ERR=1; }
 ok() { echo "OK: $*"; }
@@ -115,22 +115,22 @@ else
 fi
 
 echo "=== Host scripts & systemd ==="
-if [[ -L /home/devdas/arr/scripts ]]; then
-  target=$(readlink -f /home/devdas/arr/scripts)
+if [[ -L "$HOME/arr/scripts" ]]; then
+  target=$(readlink -f "$HOME/arr/scripts")
   [[ "$target" == "$DIR" ]] && ok "arr/scripts → $DIR" || warn "arr/scripts symlink → $target (expected $DIR)"
-elif [[ -d /home/devdas/arr/scripts ]]; then
-  warn "/home/devdas/arr/scripts is a directory (expected symlink to $DIR)"
+elif [[ -d "$HOME/arr/scripts" ]]; then
+  warn "$HOME/arr/scripts is a directory (expected symlink to $DIR)"
 else
-  warn "missing /home/devdas/arr/scripts symlink (ln -sfn $DIR /home/devdas/arr/scripts)"
+  warn "missing $HOME/arr/scripts symlink (ln -sfn $DIR $HOME/arr/scripts)"
 fi
-if [[ -L /home/devdas/jellyfin-drive ]]; then
-  jf_target=$(readlink -f /home/devdas/jellyfin-drive)
+if [[ -L "$HOME/jellyfin-drive" ]]; then
+  jf_target=$(readlink -f "$HOME/jellyfin-drive")
   [[ "$jf_target" == "/mnt/jellyfin" ]] && ok "jellyfin-drive → /mnt/jellyfin" \
     || warn "jellyfin-drive → $jf_target (expected /mnt/jellyfin)"
-elif [[ -e /home/devdas/jellyfin-drive ]]; then
-  warn "/home/devdas/jellyfin-drive is not a symlink (expected → /mnt/jellyfin)"
+elif [[ -e "$HOME/jellyfin-drive" ]]; then
+  warn "$HOME/jellyfin-drive is not a symlink (expected → /mnt/jellyfin)"
 fi
-if "$DIR/ensure-jellyfin-media-mount.sh" >/dev/null 2>&1; then
+if "$DIR/host/ensure-jellyfin-media-mount.sh" >/dev/null 2>&1; then
   msrc=$(findmnt -no UUID "$JELLYFIN_MNT" 2>/dev/null || findmnt -no SOURCE "$JELLYFIN_MNT")
   ok "$JELLYFIN_MNT mounted (UUID=$msrc) + marker OK"
   touch "${LOG_ROOT}/.stack-verify-write-test" 2>/dev/null \
@@ -167,10 +167,10 @@ if [[ -f /mnt/jellyfin/jellyfin/config/data/jellyfin.db ]]; then
   [[ "${stale_db:-0}" == 0 ]] && ok "jellyfin.db library paths on live mount" \
     || warn "jellyfin.db has $stale_db item path(s) still pointing at old mount names"
 fi
-need_exec "$DIR/lg-tv-process-queue.sh"
-need_exec "$DIR/lg-tv-optimize-daemon.sh"
-need_exec "$DIR/lg-tv-optimize-media.sh"
-need_exec "$DIR/lg-tv-queue-av1-for-qsv.sh"
+need_exec "$DIR/lg-tv/lg-tv-process-queue.sh"
+need_exec "$DIR/lg-tv/lg-tv-optimize-daemon.sh"
+need_exec "$DIR/lg-tv/lg-tv-optimize-media.sh"
+need_exec "$DIR/lg-tv/lg-tv-queue-av1-for-qsv.sh"
 need_exec "$DIR/hooks/lg-tv-queue-path.sh"
 if grep -q 'download-maintenance.lock' "$DIR/download-maintenance.sh" 2>/dev/null; then
   ok "download-maintenance uses flock"
@@ -243,7 +243,7 @@ if [[ -f "$ENC_XML" ]]; then
 fi
 
 echo "=== LG optimize HW decode tiers ==="
-OPT_SCRIPT="$DIR/lg-tv-optimize-media.sh"
+OPT_SCRIPT="$DIR/lg-tv/lg-tv-optimize-media.sh"
 if [[ -f "$OPT_SCRIPT" ]]; then
   for needle in hevc-qsv av1-qsv vp9-qsv h264-remux-hw hwaccel; do
     if grep -q "$needle" "$OPT_SCRIPT" 2>/dev/null; then
@@ -268,9 +268,9 @@ if [[ -f "$OPT_SCRIPT" ]]; then
 fi
 
 echo "=== LG TV queue paths ==="
-"$DIR/lg-tv-normalize-queue.sh" 2>/dev/null || true
+"$DIR/lg-tv/lg-tv-normalize-queue.sh" 2>/dev/null || true
 # shellcheck source=stack-paths.sh
-source /mnt/jellyfin/scripts/stack-paths.sh
+source /mnt/jellyfin/scripts/lib/stack-paths.sh
 if [[ -f "$LG_TV_QUEUE" ]]; then
   if grep -q '^/data/media/' "$LG_TV_QUEUE" 2>/dev/null; then
     warn "queue still has /data/media paths (re-run lg-tv-normalize-queue.sh)"

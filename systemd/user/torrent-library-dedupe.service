@@ -3,4 +3,4 @@ Description=Remove torrent copies already present in /mnt/jellyfin/media
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/python3 /mnt/jellyfin/scripts/cleanup-torrent-library-orphans.py
+ExecStart=/usr/bin/python3 /mnt/jellyfin/scripts/maintenance/cleanup-torrent-library-orphans.py

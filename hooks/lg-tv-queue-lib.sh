@@ -28,3 +28,4 @@ lg_tv_maybe_start_worker() {
   if [[ "$dry" -eq 0 && "$queued" -gt 0 ]]; then
     systemctl --user start --no-block lg-tv-optimize.service 2>/dev/null || true
   fi
+}

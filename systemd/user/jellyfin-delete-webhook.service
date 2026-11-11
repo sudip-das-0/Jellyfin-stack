@@ -5,7 +5,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/python3 /mnt/jellyfin/scripts/jellyfin-delete-webhook.py
+ExecStart=/usr/bin/python3 /mnt/jellyfin/scripts/jellyfin/jellyfin-delete-webhook.py
 Restart=on-failure
 RestartSec=5
 

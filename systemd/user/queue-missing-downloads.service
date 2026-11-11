@@ -3,4 +3,4 @@ Description=Search indexers for all Sonarr/Radarr missing monitored media
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/python3 /mnt/jellyfin/scripts/queue-missing-downloads.py
+ExecStart=/usr/bin/python3 /mnt/jellyfin/scripts/maintenance/queue-missing-downloads.py

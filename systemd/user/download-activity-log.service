@@ -5,4 +5,4 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=/mnt/jellyfin/scripts/download-activity-log.sh
+ExecStart=/mnt/jellyfin/scripts/maintenance/download-activity-log.sh

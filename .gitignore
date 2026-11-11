@@ -18,6 +18,7 @@ scripts/
 *.py[cod]
 .env
 .env.*
+.venv-subsync/
 
 # Rotated / local backups
 *.old

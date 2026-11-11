@@ -5,7 +5,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/mnt/jellyfin/scripts/lg-tv-watch-new-media.sh
+ExecStart=/mnt/jellyfin/scripts/lg-tv/lg-tv-watch-new-media.sh
 Restart=always
 RestartSec=5
 

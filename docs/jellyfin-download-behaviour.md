@@ -18,7 +18,7 @@ After import, Sonarr/Radarr **remove** the torrent from qBittorrent (**no seedin
 
 **Orphan reconcile (every 30 min):** `reconcile-torrents-library.py` runs before qBit completed cleanup — removes torrent-side **duplicates**, **imports** completed orphans (anime staging renames), queues **LG optimize**. Completed torrents stay in qBit up to **`QBIT_COMPLETED_PROTECT_SEC`** (default 2 h) so import can finish first.
 
-**Missing library (every 24 h):** `queue-missing-downloads.timer` → `MissingEpisodeSearch` + `MissingMoviesSearch` (Wanted → Missing). Log: `stall-recovery/queue-missing-downloads.log`. Manual: `python3 /mnt/jellyfin/scripts/queue-missing-downloads.py` (add `--tv-only` or `--movies-only` to run one app).
+**Missing library (every 24 h):** `queue-missing-downloads.timer` → `MissingEpisodeSearch` + `MissingMoviesSearch` (Wanted → Missing). Log: `stall-recovery/queue-missing-downloads.log`. Manual: `python3 /mnt/jellyfin/scripts/maintenance/queue-missing-downloads.py` (add `--tv-only` or `--movies-only` to run one app).
 
 ---
 
@@ -50,7 +50,7 @@ Every **30 minutes** (maintenance timer), `queue-dedupe.py` runs first:
 | Two+ queue rows for the same episode/movie | Keep the **best** torrent (progress → active state → download speed → seeders). Remove other queue rows and delete extra torrents in qBittorrent. |
 | Queue row but **no** torrent in qBittorrent for **≥ 6 hours** | Remove stale queue row (no auto-redownload). |
 
-**Manual run:** `/mnt/jellyfin/scripts/queue-dedupe.py`  
+**Manual run:** `/mnt/jellyfin/scripts/maintenance/queue-dedupe.py`  
 **Log prefix:** `[dedupe]` in `/mnt/jellyfin/logs/stall-recovery/recovery-YYYY-MM-DD.log`
 
 ---

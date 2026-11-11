@@ -12,7 +12,7 @@ dir="$(dirname "${BASH_SOURCE[0]}")"
 # Subtitle sidecar normalization runs on the host in lg-tv-optimize-media.sh (*arr images have no Python).
 "$dir/lg-tv-queue-path.sh"
 if [[ -n "${sonarr_episodefile_path:-}" ]]; then
-  /mnt/jellyfin/scripts/jellyfin-queue-episode-image-refresh.sh "${sonarr_episodefile_path}" 2>/dev/null || true
+  /mnt/jellyfin/scripts/jellyfin/jellyfin-queue-episode-image-refresh.sh "${sonarr_episodefile_path}" 2>/dev/null || true
 elif [[ -n "${sonarr_episodefile_sourcepath:-}" ]]; then
-  /mnt/jellyfin/scripts/jellyfin-queue-episode-image-refresh.sh "${sonarr_episodefile_sourcepath}" 2>/dev/null || true
+  /mnt/jellyfin/scripts/jellyfin/jellyfin-queue-episode-image-refresh.sh "${sonarr_episodefile_sourcepath}" 2>/dev/null || true
 fi

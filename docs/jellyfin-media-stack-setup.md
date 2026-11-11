@@ -1,36 +1,7 @@
 # Jellyfin + *arr media stack — setup reference
 
-Last updated: 2026-10-03  
-Host: Lenovo IdeaPad (Linux), user `devdas`  
-LAN IP (typical): **192.168.0.175** — confirm with `hostname -I`
-
----
-
-## Cursor (editor / CLI)
-
-### Cursor IDE (GUI)
-
-This laptop does **not** currently have a `cursor` command in `PATH` for the desktop app. After you install Cursor from [cursor.com](https://cursor.com) (`.deb` or AppImage):
-
-1. Open Cursor → **Command Palette** (`Ctrl+Shift+P`) → **“Shell Command: Install 'cursor' command in PATH”**
-2. Then from a terminal:
-
-```bash
-cursor .              # open current folder
-cursor /path/to/dir   # open a folder
-```
-
-Common install locations (if the shell command was installed): `~/.local/bin/cursor` or `/usr/bin/cursor`.
-
-### Cursor Agent (CLI — installed)
-
-Symlinks in `~/.local/bin` (ensure `export PATH="$HOME/.local/bin:$PATH"` in `~/.bashrc`):
-
-```bash
-agent --help
-cursor-agent --help
-agent "your prompt here"
-```
+Last updated: 2026-11-11  
+LAN IP: confirm with `hostname -I`
 
 ---
 
@@ -50,7 +21,7 @@ agent "your prompt here"
 
 Compose file: **`/mnt/jellyfin/scripts/docker-compose.yml`**
 
-Seerr config (same path as before): **`/home/devdas/arr/config/jellyseerr/`** (folder name unchanged; app title in UI may still say “Jellyseerr”).
+Seerr config: **`~/arr/config/jellyseerr/`** (folder name unchanged; app title in UI may still say “Jellyseerr”).
 
 ---
 
@@ -66,7 +37,7 @@ Seerr config (same path as before): **`/home/devdas/arr/config/jellyseerr/`** (f
 | `/mnt/jellyfin/torrents` | qBittorrent downloads + incomplete |
 | `/mnt/jellyfin/jellyfin/config` | Jellyfin config & database |
 | `/mnt/jellyfin/jellyfin/cache` | Jellyfin transcode cache |
-| **`/home/devdas/arr/config`** | Docker configs only (~tens of MB on **internal SSD**) |
+| **`~/arr/config`** | Docker configs only (~tens of MB on **internal SSD**) |
 | **`~/jellyfin-drive`** | Symlink → `/mnt/jellyfin` |
 | Files bookmark | GNOME Files → **jellyfin** → `/mnt/jellyfin` |
 
@@ -113,7 +84,7 @@ sudo mount -o remount /mnt/jellyfin
 - In **`settings.json`**, `main.mediaServerType` must be **`2`** (Jellyfin). Value **`4`** means “not configured” in Seerr v3 and breaks first-time Jellyfin login.
 - Seerr reaches Jellyfin from Docker via **`jellyfin.ip`: `host.docker.internal`** (port **8096**). Do not leave `ip` empty after setup.
 - Config directory must be writable by the container user (`node`): if Seerr fails to start with `EACCES` on logs, run:  
-  `sudo chown -R devdas:devdas /home/devdas/arr/config/jellyseerr/`
+  `sudo chown -R "$USER:$USER" ~/arr/config/jellyseerr/`
 
 ---
 
@@ -135,7 +106,7 @@ jellyfin media status   # same as jellyfin status
 jellyfin help
 ```
 
-**On boot:** `media-stack.service` (user systemd) runs `docker compose up -d` after Docker is up. Requires user linger (`loginctl enable-linger devdas`). Each container also has `restart: unless-stopped` as a backup if Docker starts before the user session.
+**On boot:** `media-stack.service` (user systemd) runs `docker compose up -d` after Docker is up. Requires user linger (`loginctl enable-linger "$USER"`). Each container also has `restart: unless-stopped` as a backup if Docker starts before the user session.
 
 ---
 
@@ -159,8 +130,8 @@ docker compose logs -f qbittorrent
 
 All stack containers start at login/boot via:
 
-- User systemd: **`~/.config/systemd/user/media-stack.service`** → `docker compose up -d` in `/home/devdas/arr`
-- User linger: **`loginctl enable-linger devdas`** (so the user service runs without an active desktop session)
+- User systemd: **`~/.config/systemd/user/media-stack.service`** → `docker compose up -d` in `/mnt/jellyfin/scripts`
+- User linger: **`loginctl enable-linger "$USER"`** (so the user service runs without an active desktop session)
 - Docker **`restart: unless-stopped`** on each service (containers come back if Docker restarts)
 
 ```bash
@@ -218,7 +189,7 @@ Sonarr/Radarr pick the best release by quality profile; when scores tie, the rel
 | `/mnt/jellyfin/logs/radarr/` | Radarr service logs |
 | `/mnt/jellyfin/logs/qbittorrent/` | qBittorrent file log |
 
-Manual snapshot: `/mnt/jellyfin/scripts/download-activity-log.sh`  
+Manual snapshot: `/mnt/jellyfin/scripts/maintenance/download-activity-log.sh`  
 Timer: `systemctl --user status download-activity-log.timer`
 
 ### Download maintenance (dedupe + stall recovery)
@@ -242,8 +213,8 @@ Every **30 minutes**, `torrent-stall-recovery.timer` → `download-maintenance.s
 | Item | Path |
 |------|------|
 | Wrapper | `/mnt/jellyfin/scripts/download-maintenance.sh` |
-| Dedupe | `/mnt/jellyfin/scripts/queue-dedupe.py` |
-| Stall recovery | `/mnt/jellyfin/scripts/torrent-stall-recovery.py` |
+| Dedupe | `/mnt/jellyfin/scripts/maintenance/queue-dedupe.py` |
+| Stall recovery | `/mnt/jellyfin/scripts/maintenance/torrent-stall-recovery.py` |
 | State | `/mnt/jellyfin/logs/stall-recovery/state.json` |
 | Log | `/mnt/jellyfin/logs/stall-recovery/recovery-YYYY-MM-DD.log` |
 | Timer | `systemctl --user status torrent-stall-recovery.timer` |
@@ -255,7 +226,6 @@ Override stall window: `STALL_SECONDS=43200` (12 h) in `torrent-stall-recovery.s
 | Item | Path |
 |------|------|
 | **Live** (used by `jellyfin start`) | `/mnt/jellyfin/scripts/docker-compose.yml` |
-| **Backup compose** | `/mnt/jellyfin/scripts/docs/jellyfin-docker-compose.yml.backup` |
 
 ### Check if something is downloading
 
@@ -324,9 +294,9 @@ After editing `encoding.xml`, restart Jellyfin: **`jellyfin restart`** (restarts
 
 ## Bazarr / subtitles (free-only online)
 
-**No paid APIs.** Bazarr providers: **NapiProjekt**, **subf2m**, **Animetosho**, **OpenSubtitles.com** (API key in `config.yaml`; also set **username + password** from the same OpenSubtitles account in Bazarr → Settings → Providers). After a Bazarr container recreate, run `/mnt/jellyfin/scripts/bazarr-apply-opensubtitles-apikey.sh` or restart Bazarr (uses `custom-cont-init.d`). On import, `import-sidecar-subs.sh` copies torrent `Subs/`; LG optimize saves embedded subs to `.eng.srt` before remux.
+**No paid APIs.** Bazarr providers: **NapiProjekt**, **subf2m**, **Animetosho**, **OpenSubtitles.com** (API key in `config.yaml`; also set **username + password** from the same OpenSubtitles account in Bazarr → Settings → Providers). After a Bazarr container recreate, run `/mnt/jellyfin/scripts/apply/bazarr-apply-opensubtitles-apikey.sh` or restart Bazarr (uses `custom-cont-init.d`). On import, `import-sidecar-subs.sh` copies torrent `Subs/`; LG optimize saves embedded subs to `.eng.srt` before remux.
 
-Language profile: **English** (`profileId: 1` in Bazarr `config.yaml` — use the numeric id, not the profile name, or Sonarr sync hits FK errors). Re-register hooks: `/mnt/jellyfin/scripts/register-stack-hooks.sh`. After FK/sync issues: `/mnt/jellyfin/scripts/bazarr-resync-from-arr.sh`
+Language profile: **English** (`profileId: 1` in Bazarr `config.yaml` — use the numeric id, not the profile name, or Sonarr sync hits FK errors). Re-register hooks: `/mnt/jellyfin/scripts/register-stack-hooks.sh`. After FK/sync issues: `/mnt/jellyfin/scripts/apply/bazarr-resync-from-arr.sh`
 
 ---
 
@@ -409,11 +379,9 @@ curl -s -u Dimpu:adminadmin http://127.0.0.1:8080/api/v2/torrents/info | python3
 | Item | Path |
 |------|------|
 | Compose (live) | `/mnt/jellyfin/scripts/docker-compose.yml` |
-| Compose backup | `/mnt/jellyfin/scripts/docs/jellyfin-docker-compose.yml.backup` |
-| *arr configs | `/home/devdas/arr/config/` |
-| Seerr settings / DB | `/home/devdas/arr/config/jellyseerr/settings.json`, `.../db/db.sqlite3` |
+| *arr configs | `~/arr/config/` |
+| Seerr settings / DB | `~/arr/config/jellyseerr/settings.json`, `.../db/db.sqlite3` |
 | Jellyfin config | `/mnt/jellyfin/jellyfin/config/` |
 | Jellyfin CLI | `~/.local/bin/jellyfin` |
-| Cursor Agent CLI | `~/.local/bin/agent` or `cursor-agent` |
 | This doc | `/mnt/jellyfin/scripts/docs/jellyfin-media-stack-setup.md` |
 | Download behaviour rules | `/mnt/jellyfin/scripts/docs/jellyfin-download-behaviour.md` |

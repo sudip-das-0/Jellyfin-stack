@@ -3,4 +3,4 @@ Description=Pause downloads when jellyfin USB SSD is unplugged
 
 [Service]
 Type=oneshot
-ExecStart=/mnt/jellyfin/scripts/jellyfin-drive-guard.sh
+ExecStart=/mnt/jellyfin/scripts/host/jellyfin-drive-guard.sh

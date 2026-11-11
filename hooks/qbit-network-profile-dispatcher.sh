@@ -18,4 +18,4 @@ if ! nmcli -t -f DEVICE,TYPE dev status 2>/dev/null | grep -qx "${IFACE}:wifi"; 
   exit 0
 fi
 
-exec /usr/bin/python3 /mnt/jellyfin/scripts/apply-qbit-network-profile.py
+exec /usr/bin/python3 /mnt/jellyfin/scripts/apply/apply-qbit-network-profile.py
