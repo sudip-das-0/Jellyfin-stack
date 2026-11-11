@@ -25,8 +25,8 @@ from jellyfin_db_lib import (  # noqa: E402
 _LAST_SANITIZE = 0.0
 
 LISTEN = ("127.0.0.1", 9407)
-SYNC = SCRIPTS_ROOT / "sync-manual-deletes.py"
-GUARD = SCRIPTS_ROOT / "jellyfin-delete-guard.py"
+SYNC = SCRIPTS_ROOT / "maintenance" / "sync-manual-deletes.py"
+GUARD = SCRIPTS_ROOT / "jellyfin" / "jellyfin-delete-guard.py"
 _MEDIA = str(MEDIA_ROOT).rstrip("/") + "/"
 MEDIA_MARKERS = (_MEDIA, "/media/", "/data/media/")
 PATH_KEYS = (

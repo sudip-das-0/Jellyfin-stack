@@ -11,6 +11,7 @@ Seerr request
     → *arr import hardlink  (/mnt/jellyfin/media)        [same bytes, new name]
     → import hook: copy .srt next to the video           [sidecar only]
     → Bazarr English sub search                          [sidecar only]
+    → LAPSE autosync sidecar timing                      [sidecar only]
     → lg-tv-optimize-media.sh                            [REPLACES the video]
     → Jellyfin scan → LG app play
 ```
@@ -19,7 +20,7 @@ Seerr request
 |------|--------|--------------------|
 | Download | qBittorrent | No (writes the original) |
 | Import | Sonarr/Radarr hardlink | No (same inode) |
-| Sidecar subs | `hooks/import-sidecar-subs.sh`, Bazarr, `sync-movie-subtitles.py` | **No** — only `.srt` |
+| Sidecar subs | `hooks/import-sidecar-subs.sh`, Bazarr, LAPSE plugin | **No** — only `.srt` |
 | Stall / dedupe / delete-sync | `download-maintenance.sh` | No (queue/DB only; cleanup may **delete** files, not rewrite them) |
 | **LG TV optimize** | `lg-tv/lg-tv-optimize-media.sh` | **Yes — overwrites the file in `media/`** |
 | Live transcode | Jellyfin ffmpeg while watching | Temporary only; original on disk stays |
@@ -65,7 +66,7 @@ If the LG app cannot direct-play (wrong codec/container), Jellyfin transcodes **
 
 ## What does *not* rewrite video
 
-- Subtitle sidecars / ffsubsync / alass
+- Subtitle sidecars / LAPSE / ffsubsync
 - Episode image refresh
 - Jellyfin delete-guard / *arr unmonitor
 - qBit speed profiles, stall recovery, missing-episode search

@@ -105,7 +105,7 @@ Runs immediately after dedupe in `download-maintenance.sh`.
 | Retries | Re-queue at **front** on failure. Default **`LG_TV_OPTIMIZE_MAX_RETRIES=4`**: **3** HW-only AV1 attempts (`LG_TV_AV1_HW_ATTEMPTS=3`), then one run may use **`libx264`**; then **dead-letter** if still failing. |
 | Replace | `lg-tv-optimize-media.sh` HEVC→H.264 / AV1→H.264: **QSV → VAAPI → libx264 (CPU, AV1 only after HW retries)**; then **replaces** the original only if output passes **duration + 8s video decode** checks. |
 | Protected | **`LG_TV_SKIP_REMUX=1`** (default): filenames with **REMUX** and large **DTS/TrueHD/FLAC** sources are **not** optimized (logged → `optimize.skipped`). Override per run with `LG_TV_SKIP_REMUX=0`. |
-| Failures | Failed jobs are **re-queued** (up to 3×). **4K/UHD** allowed (`LG_TV_MAX_HEIGHT=0`). Queue existing 4K: `lg-tv-queue-min-height.sh`. |
+| Failures | Failed jobs are **re-queued** (up to 3×). **4K/UHD** allowed (`LG_TV_MAX_HEIGHT=0`). Queue leftover files: `lg-tv-queue-unoptimized.sh`. |
 
 **Timers / services (user systemd, `linger` on):**
 
@@ -126,7 +126,7 @@ Runs immediately after dedupe in `download-maintenance.sh`.
 **Dead letter (failed 3×):** `/mnt/jellyfin/logs/lg-tv/optimize.deadletter.log`  
 **Retry counts:** `/mnt/jellyfin/logs/lg-tv/optimize.retries.tsv`
 
-**Subtitles (server default):** User **Dimpu** → subtitles **Always on** (English). Order: (1) on import, copy the release `.srt` whose **SxxExx** matches the episode (Vyndros-style names OK), (2) extract embedded subs to `.eng.srt` before LG TV remux, (3) **Bazarr** (OpenSubtitles.com + free providers) on webhooks + 6 h wanted search, plus `repair-sidecars-from-torrents.py` for gaps. Jellyfin plays external `.eng.srt`; the **Open Subtitles** plugin (`apply-jellyfin-opensubtitles.sh`) enables manual “Search subtitles” in the player (same OS.com account; shares the free daily quota with Bazarr).
+**Subtitles (server default):** User **Dimpu** → subtitles **Always on** (English). Order: (1) on import, copy the release `.srt` whose **SxxExx** matches the episode, (2) extract embedded subs to `.eng.srt` before LG TV remux, (3) **Bazarr** (OpenSubtitles.com) on webhooks + 6 h wanted search, (4) **LAPSE** plugin autosyncs sidecar timing (Dashboard → LAPSE; new items auto-sync). Jellyfin plays external `.eng.srt`; the **Open Subtitles** plugin enables manual “Search subtitles” in the player.
 
 **LG TV app:** Playback → maximum streaming bitrate **Maximum**; enable **Subtitles** (English) if the client does not pick up the server default.
 

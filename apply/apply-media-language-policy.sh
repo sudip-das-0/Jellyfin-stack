@@ -26,12 +26,6 @@ apply_existing_library() {
   echo "Repairing sidecars from torrent release folders (episode-matched)..."
   /usr/bin/python3 "$DIR/../maintenance/repair-sidecars-from-torrents.py" || true
 
-  echo "Auditing English sidecars (missing / suspicious timing)..."
-  /usr/bin/python3 "$DIR/../maintenance/audit-subtitle-sidecars.py" || true
-
-  echo "Syncing sidecar timing (alass) for flagged items; use sync-subtitle-sidecars.py --all for full pass..."
-  /usr/bin/python3 "$DIR/../maintenance/sync-subtitle-sidecars.py"
-
   echo "Bazarr: assign English profile + search missing subs on disk..."
   "$DIR/apply-bazarr-subtitle-defaults.sh"
 

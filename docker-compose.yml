@@ -1,5 +1,4 @@
-# Arr stack — Docker configs on internal NVMe; library on /mnt/jellyfin (2TB jellyfin-ssd, ext4).
-# Legacy HDD (read-only archive): /mnt/jellyfin-hdd after migrate-hdd-to-ssd.sh finish.
+# Arr stack — Docker configs on internal NVMe; library on /mnt/jellyfin (2TB jellyfin-ssd).
 # Git repo + operator docs: /mnt/jellyfin/scripts/README.md
 # Docker configs (not in git): host path via ARR_CONFIG_ROOT in `.env` (default below).
 # New host: ./setup-new-host.sh

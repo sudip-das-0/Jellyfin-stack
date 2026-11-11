@@ -20,6 +20,8 @@ CONFIG_ROOT = Path(os.environ.get("CONFIG_ROOT", os.path.expanduser("~/arr")))
 SCRIPTS_ROOT = Path("/mnt/jellyfin/scripts")
 LIB_DIR = SCRIPTS_ROOT / "lib"
 HOOKS_DIR = SCRIPTS_ROOT / "hooks"
+HOST_DIR = SCRIPTS_ROOT / "host"
+TEMP_DIR = SCRIPTS_ROOT / "temp"
 ARR_ROOT = CONFIG_ROOT  # *arr Docker config on internal NVMe (not in git)
 JELLYFIN_MNT = Path(os.environ.get("JELLYFIN_MNT", "/mnt/jellyfin"))
 JELLYFIN_UUID = os.environ.get("JELLYFIN_UUID", "0caa73f3-4f57-4549-8e6d-fbf323866d28")
@@ -187,7 +189,7 @@ def jellyfin_volume_ready(*, min_free_mb: int | None = None) -> bool:
         env["JELLYFIN_MIN_FREE_MB"] = str(min_free_mb)
     try:
         subprocess.run(
-            [str(SCRIPTS_ROOT / "ensure-jellyfin-media-mount.sh")],
+            [str(HOST_DIR / "ensure-jellyfin-media-mount.sh")],
             capture_output=True,
             timeout=60,
             env=env,

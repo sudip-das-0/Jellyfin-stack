@@ -4,7 +4,7 @@ Fix or create {stem}.eng.srt from matching files under /mnt/jellyfin/torrents.
 
 Repairs missing sidecars, wrong duplicates (same hash as another episode in the season),
 and sidecars whose dialogue no longer matches the torrent release file (e.g. episode 1
-text copied to every episode, then retimed with alass).
+text copied to every episode).
 """
 from __future__ import annotations
 
@@ -61,7 +61,7 @@ def read_sub_text(path: Path) -> str:
 
 
 def sidecar_alass_backup_path(sidecar: Path) -> Path:
-    """Backup written by sync-subtitle-sidecars.py before alass (video.eng.srt -> video.eng.eng.srt.bak)."""
+    """Legacy alass backup (video.eng.srt -> video.eng.eng.srt.bak)."""
     name = sidecar.name
     if name.endswith(".eng.srt"):
         base = name[: -len(".eng.srt")]

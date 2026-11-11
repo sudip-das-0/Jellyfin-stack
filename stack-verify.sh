@@ -77,7 +77,7 @@ ok=(
   and int(p.get('max_ratio_act',-1))==0
 )
 sys.exit(0 if ok else 1)
-" &>/dev/null && ok "qBittorrent max_ratio=0 (pause; *arr removes after import)" || warn "qBittorrent seeding limits wrong (run apply-no-seed-download-policy.sh)"
+" &>/dev/null && ok "qBittorrent max_ratio=0 (pause; *arr removes after import)" || warn "qBittorrent seeding limits wrong (run apply-no-seed-download-policy.py)"
 
 echo "=== Bazarr webhooks ==="
 curl -sf -H "X-Api-Key: $SON_KEY" http://127.0.0.1:8989/api/v3/notification | python3 -c "
@@ -170,8 +170,13 @@ fi
 need_exec "$DIR/lg-tv/lg-tv-process-queue.sh"
 need_exec "$DIR/lg-tv/lg-tv-optimize-daemon.sh"
 need_exec "$DIR/lg-tv/lg-tv-optimize-media.sh"
-need_exec "$DIR/lg-tv/lg-tv-queue-av1-for-qsv.sh"
+need_exec "$DIR/lg-tv/lg-tv-queue-unoptimized.sh"
 need_exec "$DIR/hooks/lg-tv-queue-path.sh"
+if [[ -f /mnt/jellyfin/jellyfin/config/plugins/LAPSE_2.1.4.0/Jellyfin.Plugin.Lapse.dll ]]; then
+  ok "LAPSE plugin files present"
+else
+  warn "LAPSE plugin files missing (run apply/apply-lapse-plugin.py)"
+fi
 if grep -q 'download-maintenance.lock' "$DIR/download-maintenance.sh" 2>/dev/null; then
   ok "download-maintenance uses flock"
 else

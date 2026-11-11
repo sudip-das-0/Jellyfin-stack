@@ -1,6 +1,7 @@
 """Parse torrent filenames, stage import-friendly names, import orphans into library."""
 from __future__ import annotations
 
+import json
 import re
 import shutil
 import subprocess
@@ -8,23 +9,33 @@ import time
 import urllib.parse
 from pathlib import Path
 
-from arr_common import MEDIA_ROOT, SCRIPTS_ROOT, SONARR_URL, TORRENTS_ROOT, arr_json, video_container_magic_ok
+from arr_common import MEDIA_ROOT, SCRIPTS_ROOT, SONARR_URL, TEMP_DIR, TORRENTS_ROOT, arr_json, video_container_magic_ok
 
 TORRENTS = TORRENTS_ROOT
 MEDIA = MEDIA_ROOT
 STAGING = TORRENTS / ".reconcile-staging"
 VIDEO_EXT = {".mkv", ".mp4", ".m4v", ".avi", ".wmv", ".ts"}
 EP_RE = re.compile(r"[Ss](\d{1,2})[Ee](\d{1,2})")
-HORRIBLE_NARUTO = re.compile(r"naruto\s*shippuuden\s*-\s*(\d+)", re.I)
-NC_RAW_ONEPIECE = re.compile(r"海贼王\s*-\s*(\d+)", re.I)
-# Netflix/KQRM season packs use absolute ep in the E field (e.g. S004E093), not Sonarr SxxEyy.
-ONEPIECE_KQRM_ABS = re.compile(r"One\.Piece\.S\d{3}E(\d{2,3})", re.I)
+# [Group] Title - 123 [1080p] — fansub absolute episode
+ABS_FANSUB = re.compile(r"\[[^\]]+\]\s*(.+?)\s*-\s*(\d{2,4})\s*\[", re.I)
+# Title.S004E093 — padded season, E-field is often an absolute episode
+ABS_PADDED_SEASON = re.compile(r"(?<![0-9])S\d{3}E(\d{2,3})(?![0-9])", re.I)
+ALIASES_PATH = TEMP_DIR / "series-aliases.json"
 
-SERIES_ALIASES: dict[str, str] = {
-    "海贼王": "One Piece",
-    "ace of diamond 2013": "Ace of Diamond",
-    "jojos bizarre adventure": "JoJo's Bizarre Adventure (2012)",
-}
+
+def load_series_aliases() -> dict[str, str]:
+    if not ALIASES_PATH.is_file():
+        return {}
+    try:
+        raw = json.loads(ALIASES_PATH.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    return {str(k).casefold(): str(v) for k, v in raw.items() if k and v}
+
+
+SERIES_ALIASES = load_series_aliases()
 
 
 def docker_torrent_path(host_path: Path) -> str:
@@ -98,19 +109,14 @@ def resolve_episode_from_filename(name: str, api_key: str, cache: dict) -> dict 
         episodes = list(parsed.get("episodeNumbers") or [])
         absolutes = list(parsed.get("absoluteEpisodeNumbers") or [])
 
-    m = HORRIBLE_NARUTO.search(name)
+    m = ABS_FANSUB.search(name)
     if m:
-        series_title = "Naruto Shippuden"
-        absolutes = [int(m.group(1))]
+        series_title = series_title or m.group(1).strip()
+        if not absolutes:
+            absolutes = [int(m.group(2))]
 
-    m = NC_RAW_ONEPIECE.search(name)
-    if m:
-        series_title = "One Piece"
-        absolutes = [int(m.group(1))]
-
-    m = ONEPIECE_KQRM_ABS.search(name)
-    if m:
-        series_title = "One Piece"
+    m = ABS_PADDED_SEASON.search(name)
+    if m and not absolutes:
         absolutes = [int(m.group(1))]
 
     if not series_title:
@@ -149,9 +155,8 @@ def import_friendly_staging_path(host_file: Path, api_key: str, cache: dict) -> 
 
     parsed = sonarr_parse(host_file.name, api_key)
     needs_stage = bool(
-        HORRIBLE_NARUTO.search(host_file.name)
-        or NC_RAW_ONEPIECE.search(host_file.name)
-        or ONEPIECE_KQRM_ABS.search(host_file.name)
+        ABS_FANSUB.search(host_file.name)
+        or ABS_PADDED_SEASON.search(host_file.name)
         or (parsed and not (parsed.get("episodeNumbers") or []))
     )
     if not needs_stage:

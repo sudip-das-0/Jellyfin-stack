@@ -237,7 +237,7 @@ if [[ "$DRY" -eq 0 ]]; then
 fi
 rm -f "$merge_tmp"
 
-"$SCRIPTS_ROOT/lg-tv-normalize-queue.sh" 2>/dev/null || true
+"$LGTV_SCRIPTS/lg-tv-normalize-queue.sh" 2>/dev/null || true
 
 echo "${stats:-needs_optimize=${count}} newly_queued=${added} already_in_queue=${skipped} dry_run=${DRY}"
 if [[ "$DRY" -eq 0 ]]; then

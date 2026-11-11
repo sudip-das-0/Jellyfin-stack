@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""Align sidecar English .srt subtitles to movie audio (ffsubsync).
+"""Align sidecar English .srt subtitles to video audio (ffsubsync fallback).
 
+LAPSE (Jellyfin plugin) is the default autosync. This script is a CLI fallback.
 Writes synced text to `{stem}.srt` and keeps `{stem}.srt.unsynced` as backup.
 """
 from __future__ import annotations
@@ -18,11 +19,13 @@ from pathlib import Path
 sys.path.insert(0, "/mnt/jellyfin/scripts/lib")
 from arr_common import JELLYFIN_MNT, LOG_ROOT, TZ, jellyfin_volume_ready
 
-MEDIA_MOVIES = JELLYFIN_MNT / "media" / "movies"
+MEDIA_ROOT = JELLYFIN_MNT / "media"
+MEDIA_MOVIES = MEDIA_ROOT / "movies"
 LOG_DIR = LOG_ROOT / "subs-sync"
 STATE_PATH = LOG_DIR / "state.json"
 VENV_FFS = Path("/mnt/jellyfin/scripts/.venv-subsync/bin/ffs")
 VIDEO_EXT = {".mkv", ".mp4", ".m4v", ".avi"}
+LIBRARY_DIRS = ("movies", "series", "anime")
 FOREIGN_SRT = re.compile(
     r"\.(jpn|ja|kor|ko|hin|hi|fre|fra|fr|deu|ger|de|spa|es|ita|it|por|pt|rus|ru|chi|zh)\.srt$",
     re.I,
@@ -96,18 +99,18 @@ def sync_one(
     state = load_state()
     prev = (state.get("movies") or {}).get(key) or {}
     if prev.get("status") == "ok" and not force:
-        return f"skip (already synced): {folder.name}"
+        return f"skip (already synced): {video.name}"
 
     src = pick_english_srt(folder, stem)
     if not src:
-        return f"skip (no English srt): {folder.name}"
+        return f"skip (no English srt): {video.name}"
 
     out_tmp = folder / f"{stem}.synced.srt"
     backup = folder / f"{stem}.srt.unsynced"
     primary = folder / f"{stem}.srt"
 
     if dry_run:
-        return f"dry-run: {folder.name} ({src.name})"
+        return f"dry-run: {video.name} ({src.name})"
 
     if not ffs.is_file():
         raise RuntimeError(f"ffsubsync missing at {ffs}")
@@ -139,7 +142,7 @@ def sync_one(
         state.setdefault("movies", {})[key] = meta
         save_state(state)
         tail = " | ".join(log_text.strip().splitlines()[-2:])
-        return f"FAIL {folder.name}: {tail[:200]}"
+        return f"FAIL {video.name}: {tail[:200]}"
 
     if primary.is_file() and not backup.is_file():
         shutil.copy2(primary, backup)
@@ -162,28 +165,38 @@ def sync_one(
     state.setdefault("movies", {})[key] = meta
     save_state(state)
     off = meta.get("offset_seconds", "?")
-    return f"OK {folder.name} (offset {off}s)"
+    return f"OK {video.name} (offset {off}s)"
 
 
-def iter_movie_videos(root: Path) -> list[Path]:
+def iter_videos(root: Path) -> list[Path]:
     out: list[Path] = []
     if not root.is_dir():
         return out
-    for entry in sorted(root.iterdir()):
-        if not entry.is_dir():
-            continue
-        vids = [p for p in entry.iterdir() if p.suffix.lower() in VIDEO_EXT and p.is_file()]
-        if not vids:
-            continue
-        vids.sort(key=lambda p: p.stat().st_size, reverse=True)
-        out.append(vids[0])
+    if root.is_file() and root.suffix.lower() in VIDEO_EXT:
+        return [root]
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in {".", ".."}]
+        folder = Path(dirpath)
+        for name in filenames:
+            p = folder / name
+            if p.suffix.lower() in VIDEO_EXT and p.is_file():
+                out.append(p)
+    out.sort()
+    return out
+
+
+def iter_library_videos() -> list[Path]:
+    out: list[Path] = []
+    for name in LIBRARY_DIRS:
+        out.extend(iter_videos(MEDIA_ROOT / name))
     return out
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--movie", help='Movie folder name, e.g. "The Wolf of Wall Street (2013)"')
-    parser.add_argument("--all", action="store_true")
+    parser.add_argument("--path", help="Video file or folder (movies/series/anime)")
+    parser.add_argument("--all", action="store_true", help="All videos under media/movies, series, anime")
     parser.add_argument("--limit", type=int, default=0)
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
@@ -204,18 +217,24 @@ def main() -> int:
         return 0
 
     ffs = Path(os.environ.get("FFS_BIN", VENV_FFS))
-    if args.movie:
+    if args.path:
+        target = Path(args.path)
+        if not target.exists():
+            print(f"Not found: {target}", file=sys.stderr)
+            return 1
+        targets = iter_videos(target)
+    elif args.movie:
         folder = MEDIA_MOVIES / args.movie
         if not folder.is_dir():
             print(f"Not found: {folder}", file=sys.stderr)
             return 1
-        targets = [p for p in folder.iterdir() if p.suffix.lower() in VIDEO_EXT]
+        targets = iter_videos(folder)
     elif args.all:
-        targets = iter_movie_videos(MEDIA_MOVIES)
+        targets = iter_library_videos()
         if args.limit > 0:
             targets = targets[: args.limit]
     else:
-        parser.error("use --movie or --all")
+        parser.error("use --path, --movie, or --all")
 
     ok = fail = skip = 0
     for video in targets:

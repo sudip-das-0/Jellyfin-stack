@@ -86,7 +86,7 @@ install -m 644 "$SERVICE_SRC" "${HOME}/.config/systemd/user/jellyfin-delete-webh
 systemctl --user daemon-reload
 systemctl --user enable --now jellyfin-delete-webhook.service
 
-"$DIR/apply/register-arr-delete-sync.sh"
+/usr/bin/python3 "$DIR/lib/register_arr_notifications.py" delete-sync
 
 echo "Done. Webhook also runs jellyfin-delete-guard (UserData sanitization + DB ghost purge on ItemDeleted)."
 echo "PlaybackStart events clear bad UserData before you delete from the UI."
