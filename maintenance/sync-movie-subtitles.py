@@ -16,14 +16,13 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-sys.path.insert(0, "/mnt/jellyfin/scripts/lib")
-from arr_common import JELLYFIN_MNT, LOG_ROOT, TZ, jellyfin_volume_ready
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
+from arr_common import LOG_ROOT, MEDIA_ROOT, SCRIPTS_ROOT, TZ, echo_script_log, jellyfin_volume_ready
 
-MEDIA_ROOT = JELLYFIN_MNT / "media"
 MEDIA_MOVIES = MEDIA_ROOT / "movies"
 LOG_DIR = LOG_ROOT / "subs-sync"
 STATE_PATH = LOG_DIR / "state.json"
-VENV_FFS = Path("/mnt/jellyfin/scripts/.venv-subsync/bin/ffs")
+VENV_FFS = SCRIPTS_ROOT / ".venv-subsync/bin/ffs"
 VIDEO_EXT = {".mkv", ".mp4", ".m4v", ".avi"}
 LIBRARY_DIRS = ("movies", "series", "anime")
 FOREIGN_SRT = re.compile(
@@ -33,12 +32,9 @@ FOREIGN_SRT = re.compile(
 
 
 def log(msg: str) -> None:
-    LOG_DIR.mkdir(parents=True, exist_ok=True)
     day = datetime.now(TZ).strftime("%Y-%m-%d")
-    line = f"{datetime.now(TZ).strftime('%Y-%m-%d %H:%M:%S %Z')} {msg}\n"
-    with (LOG_DIR / f"sync-{day}.log").open("a", encoding="utf-8") as f:
-        f.write(line)
-    print(line, end="")
+    line = f"{datetime.now(TZ).strftime('%Y-%m-%d %H:%M:%S %Z')} {msg}"
+    echo_script_log(LOG_DIR / f"sync-{day}.log", line)
 
 
 def load_state() -> dict:

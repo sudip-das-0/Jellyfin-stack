@@ -14,7 +14,7 @@ from typing import Any, Iterable
 
 _SCRIPTS = Path(__file__).resolve().parent
 if str(_SCRIPTS) not in sys.path:
-    sys.path.insert(0, "/mnt/jellyfin/scripts/lib")
+    sys.path.insert(0, str(_SCRIPTS))
 from arr_common import JELLYFIN_DB, JELLYFIN_MNT  # noqa: E402
 
 DB = Path(os.environ.get("JELLYFIN_DB", str(JELLYFIN_DB)))

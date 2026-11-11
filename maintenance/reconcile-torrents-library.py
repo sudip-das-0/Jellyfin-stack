@@ -9,9 +9,11 @@ import sys
 import urllib.error
 from pathlib import Path
 
-sys.path.insert(0, "/mnt/jellyfin/scripts/lib")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
 
 from arr_common import (
+    HOOKS_DIR,
+    MEDIA_ROOT,
     RADARR_CONFIG,
     RADARR_URL,
     SONARR_CONFIG,
@@ -55,9 +57,9 @@ def iter_torrent_videos() -> list[Path]:
 
 
 def post_import_hooks(media_path: Path) -> None:
-    rel = media_path.relative_to("/mnt/jellyfin/media")
+    rel = media_path.relative_to(MEDIA_ROOT)
     data_path = f"/data/media/{rel.as_posix()}"
-    hooks = Path("/mnt/jellyfin/scripts/hooks")
+    hooks = HOOKS_DIR
     env = {**os.environ, "sonarr_episodefile_path": data_path}
     sidecar = hooks / "import-sidecar-subs.sh"
     if sidecar.is_file():

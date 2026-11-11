@@ -19,7 +19,7 @@ import sys
 import urllib.error
 from pathlib import Path
 
-sys.path.insert(0, "/mnt/jellyfin/scripts/lib")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
 from arr_common import (
     MEDIA_ROOT,
     RADARR_CONFIG,

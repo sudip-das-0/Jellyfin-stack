@@ -9,10 +9,10 @@ import sys
 import urllib.parse
 from pathlib import Path
 
-sys.path.insert(0, "/mnt/jellyfin/scripts/lib")
-from arr_common import LOG_ROOT, echo_script_log, qbit_json
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
+from arr_common import LOG_ROOT, SCRIPTS_ROOT, echo_script_log, qbit_json
 
-CONFIG_PATH = Path("/mnt/jellyfin/scripts/config/qbit-network-profiles.json")
+CONFIG_PATH = SCRIPTS_ROOT / "config/qbit-network-profiles.json"
 STATE_PATH = LOG_ROOT / "qbit-network-profile.state.json"
 LOG_PATH = LOG_ROOT / "stall-recovery" / "qbit-network-profile.log"
 

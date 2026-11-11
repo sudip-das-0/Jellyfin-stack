@@ -14,4 +14,4 @@ args=()
 for p in "${paths[@]}"; do
   args+=(--path "$p")
 done
-/usr/bin/python3 /mnt/jellyfin/scripts/jellyfin/jellyfin-refresh-episode-images.py "${args[@]}"
+/usr/bin/python3 "${JF_SCRIPTS}/jellyfin-refresh-episode-images.py" "${args[@]}"

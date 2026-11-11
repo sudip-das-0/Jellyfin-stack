@@ -6,7 +6,7 @@ source "$(dirname "$0")/../lib/stack-paths.sh"
 
 QUEUE="${STALL_LOG_DIR}/jellyfin-episode-image-refresh.queue"
 LOCK="${STALL_LOG_DIR}/jellyfin-episode-image-refresh.lock"
-PROCESSOR="/mnt/jellyfin/scripts/jellyfin/jellyfin-process-episode-image-refresh.sh"
+PROCESSOR="${JF_SCRIPTS}/jellyfin-process-episode-image-refresh.sh"
 
 path="${1:-}"
 [[ -n "$path" ]] || exit 0

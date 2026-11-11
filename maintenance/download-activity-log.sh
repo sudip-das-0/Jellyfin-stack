@@ -18,7 +18,7 @@ mkdir -p "$LOG_DIR"
 {
   echo "=== ${TS} ==="
 
-  if curl -sf -u "${QBIT_USER}:${QBIT_PASS}" "http://127.0.0.1:8080/api/v2/torrents/info" -o "$TMP"; then
+  if curl -sf -u "${QBIT_USER}:${QBIT_PASS}" "${QBIT_URL}/api/v2/torrents/info" -o "$TMP"; then
     python3 - "$TMP" <<'PY'
 import json, sys
 with open(sys.argv[1]) as f:
@@ -41,7 +41,7 @@ PY
     echo "qBittorrent: unavailable"
   fi
 
-  if curl -sf -H "X-Api-Key: ${SONARR_KEY}" "http://127.0.0.1:8989/api/v3/queue?pageSize=20" -o "$TMP"; then
+  if curl -sf -H "X-Api-Key: ${SONARR_KEY}" "${SONARR_URL}/api/v3/queue?pageSize=20" -o "$TMP"; then
     python3 - "$TMP" <<'PY'
 import json, sys
 with open(sys.argv[1]) as f:
@@ -60,7 +60,7 @@ PY
     echo "Sonarr queue: unavailable"
   fi
 
-  if curl -sf -H "X-Api-Key: ${RADARR_KEY}" "http://127.0.0.1:7878/api/v3/queue?pageSize=10" -o "$TMP"; then
+  if curl -sf -H "X-Api-Key: ${RADARR_KEY}" "${RADARR_URL}/api/v3/queue?pageSize=10" -o "$TMP"; then
     python3 - "$TMP" <<'PY'
 import json, sys
 with open(sys.argv[1]) as f:

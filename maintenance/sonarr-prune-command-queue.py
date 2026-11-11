@@ -6,7 +6,7 @@ import sys
 import urllib.error
 from pathlib import Path
 
-sys.path.insert(0, "/mnt/jellyfin/scripts/lib")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
 from arr_common import SONARR_CONFIG, SONARR_URL, append_recovery_log, arr_json, read_api_key
 
 KEEP = int(__import__("os").environ.get("SONARR_KEEP_QUEUED_SEASONSEARCH", "0"))

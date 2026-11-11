@@ -47,7 +47,7 @@ REMUX_IN="${LG_TV_REMUX_INPUT_FLAGS:--fflags +genpts+igndts -err_detect ignore_e
 mark_permanent_skip() {
   touch "$SKIPPED"
   grep -Fxq "$src" "$SKIPPED" 2>/dev/null || echo "$src" >> "$SKIPPED"
-  /mnt/jellyfin/scripts/lg-tv/lg-tv-purge-queue-path.sh "$src" 2>/dev/null || true
+  "${LGTV_SCRIPTS}/lg-tv-purge-queue-path.sh" "$src" 2>/dev/null || true
 }
 
 # Uses SOURCE_SIZE and acodec set during probe (before optimize).
@@ -136,8 +136,8 @@ fi
 rel="${src#/mnt/jellyfin/media/}"
 cin="/media/$rel"
 
-if [[ -f /mnt/jellyfin/scripts/maintenance/normalize-subtitle-sidecars.py ]]; then
-  /usr/bin/python3 /mnt/jellyfin/scripts/maintenance/normalize-subtitle-sidecars.py --video "$src" 2>/dev/null || true
+if [[ -f "${MAINT_DIR}/normalize-subtitle-sidecars.py" ]]; then
+  /usr/bin/python3 "${MAINT_DIR}/normalize-subtitle-sidecars.py" --video "$src" 2>/dev/null || true
 fi
 tmp_host="${src}.lgopt.tmp.mkv"
 tmp_name="$(basename "$src").lgopt.tmp.mkv"
@@ -165,7 +165,7 @@ audio_map_args() {
     -of csv=p=0 2>/dev/null | python3 -c "
 import importlib.util
 import sys
-spec = importlib.util.spec_from_file_location('mlp', '/mnt/jellyfin/scripts/lib/media-lang-policy.py')
+spec = importlib.util.spec_from_file_location('mlp', '${LIB_DIR}/media-lang-policy.py')
 mlp = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mlp)
 rows = []
@@ -308,7 +308,7 @@ if [[ "$subs" != "0" ]]; then
       -select_streams s -show_entries stream=index:stream_tags=language:stream_tags=title \
       -of json 2>/dev/null | python3 -c "
 import importlib.util, json, sys
-spec = importlib.util.spec_from_file_location('mlp', '/mnt/jellyfin/scripts/lib/media-lang-policy.py')
+spec = importlib.util.spec_from_file_location('mlp', '${LIB_DIR}/media-lang-policy.py')
 mlp = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mlp)
 data = json.load(sys.stdin)
@@ -780,7 +780,7 @@ mv -f "$tmp_host" "$final_path"
 if [[ "$final_path" != "$src" ]]; then
   log "replaced container: $src -> $final_path"
   rm -f "$src"
-  /mnt/jellyfin/scripts/lg-tv/lg-tv-purge-queue-path.sh "$src" 2>/dev/null || true
+  "${LGTV_SCRIPTS}/lg-tv-purge-queue-path.sh" "$src" 2>/dev/null || true
   src="$final_path"
   rel="${src#/mnt/jellyfin/media/}"
 fi
@@ -794,6 +794,6 @@ else
   log "done: $src (size unchanged at $(human_bytes "$bytes_after"))"
 fi
 
-/mnt/jellyfin/scripts/lg-tv/lg-tv-purge-queue-path.sh "$src" 2>/dev/null || true
-/mnt/jellyfin/scripts/jellyfin/jellyfin-queue-episode-image-refresh.sh "$src" 2>/dev/null || true
+"${LGTV_SCRIPTS}/lg-tv-purge-queue-path.sh" "$src" 2>/dev/null || true
+"${JF_SCRIPTS}/jellyfin-queue-episode-image-refresh.sh" "$src" 2>/dev/null || true
 remove_torrent_originals "$SOURCE_INODE" "$src" "$SOURCE_SIZE"

@@ -8,8 +8,9 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+from pathlib import Path
 
-sys.path.insert(0, "/mnt/jellyfin/scripts/lib")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
 from arr_common import JELLYFIN_DB, JELLYFIN_URL, MEDIA_ROOT, STALL_LOG_DIR, echo_script_log  # noqa: E402
 
 LOG = STALL_LOG_DIR / "jellyfin-episode-images.log"

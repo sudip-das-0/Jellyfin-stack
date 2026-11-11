@@ -10,7 +10,7 @@ import argparse
 import sys
 from pathlib import Path
 
-sys.path.insert(0, "/mnt/jellyfin/scripts/lib")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
 
 from arr_common import STALL_LOG_DIR, echo_script_log  # noqa: E402
 from jellyfin_db_lib import (  # noqa: E402

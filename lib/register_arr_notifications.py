@@ -7,7 +7,7 @@ import copy
 import sys
 from pathlib import Path
 
-sys.path.insert(0, "/mnt/jellyfin/scripts/lib")
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 from arr_common import RADARR_CONFIG, RADARR_URL, SONARR_CONFIG, SONARR_URL, arr_json, read_api_key
 
 IMPORT_SCRIPT = "/data/scripts/arr-import-postprocess.sh"

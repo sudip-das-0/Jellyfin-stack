@@ -89,10 +89,10 @@ spec.loader.exec_module(mlp)
 subtitle_langs = list(mlp.JELLYFIN_SUBTITLE_LANGS)
 block = "\n".join(f"    <string>{c}</string>" for c in subtitle_langs)
 for rel in (
-    "/mnt/jellyfin/jellyfin/config/root/default/Series/options.xml",
-    "/mnt/jellyfin/jellyfin/config/root/default/Anime/options.xml",
-    "/mnt/jellyfin/jellyfin/config/root/default/Movies/options.xml",
-    "/mnt/jellyfin/jellyfin/config/root/default/Other/options.xml",
+    "${JELLYFIN_CONFIG_ROOT}/root/default/Series/options.xml",
+    "${JELLYFIN_CONFIG_ROOT}/root/default/Anime/options.xml",
+    "${JELLYFIN_CONFIG_ROOT}/root/default/Movies/options.xml",
+    "${JELLYFIN_CONFIG_ROOT}/root/default/Other/options.xml",
 ):
     p = Path(rel)
     text = p.read_text(encoding="utf-8")

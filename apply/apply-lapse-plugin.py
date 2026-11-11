@@ -13,7 +13,7 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-sys.path.insert(0, "/mnt/jellyfin/scripts/lib")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
 from arr_common import BAZARR_CONFIG, JELLYFIN_CONFIG_ROOT, JELLYFIN_DB, JELLYFIN_URL  # noqa: E402
 
 PLUGIN_GUID = "486090e1-ca92-46e1-8549-9f6bb914a1d0"

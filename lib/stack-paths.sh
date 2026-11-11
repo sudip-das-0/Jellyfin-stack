@@ -10,7 +10,7 @@ JELLYFIN_URL="${JELLYFIN_URL:-http://127.0.0.1:8096}"
 LOG_ROOT="${JELLYFIN_MNT}/logs"
 STALL_LOG_DIR="${LOG_ROOT}/stall-recovery"
 LG_TV_DIR="${LOG_ROOT}/lg-tv"
-SCRIPTS_ROOT=/mnt/jellyfin/scripts
+SCRIPTS_ROOT="${SCRIPTS_ROOT:-/mnt/jellyfin/scripts}"
 LIB_DIR="${SCRIPTS_ROOT}/lib"
 APPLY_DIR="${SCRIPTS_ROOT}/apply"
 LGTV_SCRIPTS="${SCRIPTS_ROOT}/lg-tv"
@@ -27,6 +27,9 @@ BAZARR_CONFIG="${CONFIG_ROOT}/config/bazarr/config/config.yaml"
 BAZARR_DB="${CONFIG_ROOT}/config/bazarr/db/bazarr.db"
 QBIT_USER="${QBIT_USER:-Dimpu}"
 QBIT_PASS="${QBIT_PASS:-adminadmin}"
+SONARR_URL="${SONARR_URL:-http://127.0.0.1:8989}"
+RADARR_URL="${RADARR_URL:-http://127.0.0.1:7878}"
+QBIT_URL="${QBIT_URL:-http://127.0.0.1:8080}"
 STALL_SECONDS_DEFAULT="${STALL_SECONDS_DEFAULT:-43200}"
 
 read_arr_api_key() {

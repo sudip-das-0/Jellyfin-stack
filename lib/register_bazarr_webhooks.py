@@ -5,7 +5,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-sys.path.insert(0, "/mnt/jellyfin/scripts/lib")
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 from arr_common import (  # noqa: E402
     RADARR_CONFIG,
     RADARR_URL,

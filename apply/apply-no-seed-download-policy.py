@@ -8,7 +8,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-sys.path.insert(0, "/mnt/jellyfin/scripts/lib")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
 from arr_common import (
     RADARR_CONFIG,
     RADARR_URL,

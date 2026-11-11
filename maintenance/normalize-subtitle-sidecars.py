@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-POLICY = Path("/mnt/jellyfin/scripts/lib/media-lang-policy.py")
+POLICY = SCRIPT_DIR.parent / "lib" / "media-lang-policy.py"
 VIDEO_SUFFIXES = {".mkv", ".mp4"}
 
 

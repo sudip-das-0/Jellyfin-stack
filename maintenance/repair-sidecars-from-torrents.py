@@ -16,15 +16,15 @@ import sys
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-sys.path.insert(0, "/mnt/jellyfin/scripts/lib")
+sys.path.insert(0, str(SCRIPT_DIR.parent / "lib"))
 
+from arr_common import MEDIA_ROOT, TORRENTS_ROOT  # noqa: E402
 import sidecar_release as sr  # noqa: E402
 
 mlp = sr.mlp
 
 VIDEO_SUFFIXES = {".mkv", ".mp4"}
-TORRENT_ROOT = Path("/mnt/jellyfin/torrents")
-MEDIA_ROOT = Path("/mnt/jellyfin/media")
+TORRENT_ROOT = TORRENTS_ROOT
 MEDIA_ROOTS = (
     MEDIA_ROOT / "series",
     MEDIA_ROOT / "anime",

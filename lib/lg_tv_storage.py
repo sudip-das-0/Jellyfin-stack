@@ -10,7 +10,9 @@ import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-MEDIA_ROOT = "/mnt/jellyfin/media"
+from arr_common import MEDIA_ROOT as _MEDIA_ROOT
+
+MEDIA_ROOT = str(_MEDIA_ROOT)
 DEFAULT_MAX_GIB_PER_HOUR = 5.0
 SKIP_SUFFIX = (".lgstream.mkv", ".lgopt.tmp.mkv")
 VIDEO_SUFFIXES = (".mkv", ".mp4", ".m2ts", ".ts")

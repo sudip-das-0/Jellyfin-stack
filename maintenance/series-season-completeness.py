@@ -6,7 +6,7 @@ import sys
 import urllib.error
 from pathlib import Path
 
-sys.path.insert(0, "/mnt/jellyfin/scripts/lib")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
 from arr_common import SONARR_CONFIG, STALL_LOG_DIR, iter_incomplete_seasons, read_api_key
 
 

@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Control the Jellyfin + *arr Docker stack (compose in /mnt/jellyfin/scripts).
 set -euo pipefail
-COMPOSE_DIR=/mnt/jellyfin/scripts
+# shellcheck source=stack-paths.sh
+source "$(dirname "$0")/../lib/stack-paths.sh"
+COMPOSE_DIR=$SCRIPTS_ROOT
 cmd="${1:-help}"
 shift || true
 
@@ -14,8 +16,8 @@ docker_cmd() {
 }
 
 run_compose() {
-  if ! mountpoint -q /mnt/jellyfin; then
-    echo "jellyfin: /mnt/jellyfin is not mounted — plug in the jellyfin SSD" >&2
+  if ! mountpoint -q "$JELLYFIN_MNT"; then
+    echo "jellyfin: $JELLYFIN_MNT is not mounted — plug in the jellyfin SSD" >&2
     exit 1
   fi
   (cd "$COMPOSE_DIR" && docker_cmd "$@")
