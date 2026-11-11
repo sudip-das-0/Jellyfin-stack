@@ -4,6 +4,10 @@
 set -euo pipefail
 
 DIR=$(dirname "$(readlink -f "$0")")
+# shellcheck source=stack-paths.sh
+source "$DIR/../lib/stack-paths.sh"
+# shellcheck source=lg-tv-queue-lib.sh
+source "${HOOKS_DIR}/lg-tv-queue-lib.sh"
 MODE=full
 for arg in "$@"; do
   case "$arg" in
@@ -21,10 +25,10 @@ apply_existing_library() {
   echo "=== Existing library: English subtitles backfill ==="
 
   echo "Normalizing sidecars to one English file per video ({stem}.eng.srt)..."
-  /usr/bin/python3 "$DIR/../maintenance/normalize-subtitle-sidecars.py"
+  /usr/bin/python3 "${MAINT_DIR}/normalize-subtitle-sidecars.py"
 
   echo "Repairing sidecars from torrent release folders (episode-matched)..."
-  /usr/bin/python3 "$DIR/../maintenance/repair-sidecars-from-torrents.py" || true
+  /usr/bin/python3 "${MAINT_DIR}/repair-sidecars-from-torrents.py" || true
 
   echo "Bazarr: assign English profile + search missing subs on disk..."
   "$DIR/apply-bazarr-subtitle-defaults.sh"
@@ -36,26 +40,26 @@ apply_existing_library() {
     had=$((had + 1))
     stem="${video%.*}"
     [[ -f "${stem}.eng.srt" ]] && continue
-    /mnt/jellyfin/scripts/hooks/lg-tv-queue-path.sh "$video"
+    lg_tv_enqueue_path "$video" || true
     queued=$((queued + 1))
   done < <(
-    find /mnt/jellyfin/media -type f \( -name '*.mkv' -o -name '*.mp4' \) \
+    find "$MEDIA_ROOT" -type f \( -name '*.mkv' -o -name '*.mp4' \) \
       ! -name '*.lgopt.tmp.mkv' ! -name '*.lgstream.mkv' -print0 2>/dev/null
   )
   unset LG_TV_QUEUE_NO_START
   echo "Videos scanned: ${had}; queued for LG pipeline (no .eng.srt yet): ${queued}"
 
+  lg_tv_maybe_start_worker "$queued"
   if [[ "$queued" -gt 0 ]]; then
-    systemctl --user start --no-block lg-tv-optimize.service 2>/dev/null || true
     echo "Started lg-tv-optimize.service (drain queue in background)."
   fi
 
   echo "Refreshing Jellyfin library (pick up sidecar changes)..."
-  API_KEY=$(sqlite3 /mnt/jellyfin/jellyfin/config/data/jellyfin.db \
+  API_KEY=$(sqlite3 "$JELLYFIN_DB" \
     "SELECT AccessToken FROM ApiKeys WHERE Name='arr-stack' LIMIT 1;" 2>/dev/null || true)
   if [[ -n "${API_KEY:-}" ]]; then
     curl -sf -X POST -H "Authorization: MediaBrowser Token=\"$API_KEY\"" \
-      "http://127.0.0.1:8096/Library/Refresh" -o /dev/null 2>/dev/null || true
+      "${JELLYFIN_URL}/Library/Refresh" -o /dev/null 2>/dev/null || true
   fi
 }
 

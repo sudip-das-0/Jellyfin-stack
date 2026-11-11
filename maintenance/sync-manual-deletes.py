@@ -22,6 +22,7 @@ from arr_common import (
     SONARR_URL,
     STALL_LOG_DIR,
     arr_json,
+    echo_script_log,
     fetch_arr_queue,
     arr_queue_remove,
     qbit_delete,
@@ -43,10 +44,7 @@ IMPORT_EVENTS = frozenset(
 
 
 def log(msg: str) -> None:
-    STALL_LOG_DIR.mkdir(parents=True, exist_ok=True)
-    with LOG.open("a", encoding="utf-8") as f:
-        f.write(msg + "\n")
-    print(msg)
+    echo_script_log(LOG, msg)
 
 
 def arr_path_to_host(path: str) -> Path:

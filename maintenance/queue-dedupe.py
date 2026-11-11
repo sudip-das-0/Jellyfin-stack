@@ -10,7 +10,6 @@ import os
 import sys
 import urllib.error
 from datetime import datetime, timezone
-from pathlib import Path
 
 sys.path.insert(0, "/mnt/jellyfin/scripts/lib")
 from arr_common import (
@@ -18,9 +17,8 @@ from arr_common import (
     RADARR_URL,
     SONARR_CONFIG,
     SONARR_URL,
-    STALL_LOG_DIR,
     STALL_RECOVERY_STATE_PATH,
-    TZ,
+    append_recovery_log,
     arr_queue_remove,
     fetch_arr_queue,
     norm_qbit_hash,
@@ -28,7 +26,6 @@ from arr_common import (
     qbit_torrents,
     read_api_key,
 )
-LOG_DIR = STALL_LOG_DIR
 DEDUPE_VERBOSE = os.environ.get("DEDUPE_VERBOSE", "") == "1"
 STATE_PATH = STALL_RECOVERY_STATE_PATH
 ORPHAN_QUEUE_HOURS = 6
@@ -37,13 +34,7 @@ ORPHAN_QUEUE_HOURS = 6
 def log(msg: str, *, detail: bool = False) -> None:
     if detail and not DEDUPE_VERBOSE:
         return
-    LOG_DIR.mkdir(parents=True, exist_ok=True)
-    day = datetime.now(TZ).strftime("%Y-%m-%d")
-    line = f"{datetime.now(TZ).strftime('%Y-%m-%d %H:%M:%S %Z')} [dedupe] {msg}\n"
-    with (LOG_DIR / f"recovery-{day}.log").open("a", encoding="utf-8") as f:
-        f.write(line)
-    if not detail or DEDUPE_VERBOSE:
-        print(line, end="")
+    append_recovery_log(msg, tag="dedupe", echo=True)
 
 
 def torrent_score(t: dict | None) -> tuple:

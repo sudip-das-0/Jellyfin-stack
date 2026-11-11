@@ -14,6 +14,7 @@ from arr_common import (
     SONARR_URL,
     STALL_LOG_DIR,
     arr_json,
+    echo_script_log,
     read_api_key,
 )
 
@@ -23,10 +24,7 @@ RADARR_QUEUE = STALL_LOG_DIR / "unmonitor-radarr.queue"
 
 
 def log(msg: str) -> None:
-    STALL_LOG_DIR.mkdir(parents=True, exist_ok=True)
-    with LOG.open("a", encoding="utf-8") as f:
-        f.write(msg + "\n")
-    print(msg)
+    echo_script_log(LOG, msg)
 
 
 def drain_queue(path: Path) -> list[int]:

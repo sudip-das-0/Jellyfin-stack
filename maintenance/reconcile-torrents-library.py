@@ -19,8 +19,8 @@ from arr_common import (
     STALL_LOG_DIR,
     append_recovery_log,
     arr_json,
+    echo_script_log,
     read_api_key,
-    rotate_log_file,
 )
 from orphan_import_helpers import (
     STAGING,
@@ -35,11 +35,7 @@ IMPORT_LIMIT = int(os.environ.get("RECONCILE_IMPORT_LIMIT", "15"))
 
 
 def log(msg: str) -> None:
-    STALL_LOG_DIR.mkdir(parents=True, exist_ok=True)
-    rotate_log_file(LOG_FILE)
-    with LOG_FILE.open("a", encoding="utf-8") as f:
-        f.write(msg + "\n")
-    print(msg)
+    echo_script_log(LOG_FILE, msg, rotate=True)
 
 
 def iter_torrent_videos() -> list[Path]:

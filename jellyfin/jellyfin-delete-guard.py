@@ -12,7 +12,7 @@ from pathlib import Path
 
 sys.path.insert(0, "/mnt/jellyfin/scripts/lib")
 
-from arr_common import STALL_LOG_DIR  # noqa: E402
+from arr_common import STALL_LOG_DIR, echo_script_log  # noqa: E402
 from jellyfin_db_lib import (  # noqa: E402
     connect,
     finish_delete,
@@ -26,10 +26,7 @@ LOG = STALL_LOG_DIR / "jellyfin-delete-guard.log"
 
 
 def log(msg: str) -> None:
-    LOG.parent.mkdir(parents=True, exist_ok=True)
-    line = f"{msg}\n"
-    LOG.open("a", encoding="utf-8").write(line)
-    print(msg)
+    echo_script_log(LOG, msg)
 
 
 def main() -> int:

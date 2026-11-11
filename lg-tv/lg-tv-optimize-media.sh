@@ -30,7 +30,7 @@ if [[ "$src" == *.lgstream.mkv ]]; then
 fi
 
 # shellcheck source=stack-paths.sh
-source /mnt/jellyfin/scripts/lib/stack-paths.sh
+source "$(dirname "$0")/../lib/stack-paths.sh"
 LG_TV_DRI_NODE="$LG_TV_QSV_DEVICE"
 LG_TV_DRI_DRIVER="$LG_TV_VAAPI_DRIVER"
 LOG=$LG_TV_LOG

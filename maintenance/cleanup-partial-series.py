@@ -18,8 +18,8 @@ from arr_common import (
     STALL_LOG_DIR,
     TORRENTS_ROOT,
     arr_json,
+    echo_script_log,
     read_api_key,
-    rotate_log_file,
 )
 
 TORRENTS = TORRENTS_ROOT
@@ -28,12 +28,9 @@ VERBOSE = os.environ.get("CLEANUP_VERBOSE", "") == "1"
 
 
 def log(msg: str) -> None:
-    STALL_LOG_DIR.mkdir(parents=True, exist_ok=True)
-    rotate_log_file(LOG_FILE)
-    with LOG_FILE.open("a", encoding="utf-8") as f:
-        f.write(msg + "\n")
-    if VERBOSE or msg.startswith("Done:"):
-        print(msg)
+    echo_script_log(
+        LOG_FILE, msg, rotate=True, echo=VERBOSE or msg.startswith("Done:")
+    )
 
 
 def should_remove_queue_row(row: dict) -> bool:

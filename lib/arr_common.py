@@ -117,6 +117,19 @@ def append_script_log(log_path: Path, msg: str, *, rotate: bool = True) -> None:
         f.write(msg + "\n")
 
 
+def echo_script_log(
+    log_path: Path,
+    msg: str,
+    *,
+    rotate: bool = False,
+    echo: bool = True,
+) -> None:
+    """Append msg to log_path; print when echo is true."""
+    append_script_log(log_path, msg, rotate=rotate)
+    if echo:
+        print(msg)
+
+
 def qbit_torrents() -> list[dict]:
     data = qbit_json("/api/v2/torrents/info")
     return data if isinstance(data, list) else []
@@ -331,12 +344,20 @@ def qbit_all_protected_hashes() -> set[str]:
     return out
 
 
-def append_recovery_log(msg: str, *, tag: str = "maint") -> None:
+def append_recovery_log(
+    msg: str,
+    *,
+    tag: str | None = "maint",
+    echo: bool = False,
+) -> None:
     STALL_LOG_DIR.mkdir(parents=True, exist_ok=True)
     day = datetime.now(TZ).strftime("%Y-%m-%d")
-    line = f"{datetime.now(TZ).strftime('%Y-%m-%d %H:%M:%S %Z')} [{tag}] {msg}\n"
+    ts = datetime.now(TZ).strftime("%Y-%m-%d %H:%M:%S %Z")
+    line = f"{ts} [{tag}] {msg}" if tag else f"{ts} {msg}"
     with (STALL_LOG_DIR / f"recovery-{day}.log").open("a", encoding="utf-8") as f:
-        f.write(line)
+        f.write(line + "\n")
+    if echo:
+        print(line)
 
 
 def iter_incomplete_seasons(

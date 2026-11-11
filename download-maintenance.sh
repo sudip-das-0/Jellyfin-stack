@@ -41,6 +41,21 @@ maint_run() {
   return 0
 }
 
+run_temp_download_policies() {
+  local timeout_sec=$1
+  shift
+  shopt -s nullglob
+  local f
+  for f in "${TEMP_DIR}/"*-download-policy.py; do
+    if [[ $# -gt 0 ]]; then
+      timeout "$timeout_sec" /usr/bin/python3 "$f" "$@" || true
+    else
+      maint_run "$(basename "$f" .py)" "$timeout_sec" /usr/bin/python3 "$f" || true
+    fi
+  done
+  shopt -u nullglob
+}
+
 # --- Log hygiene + library sync ---
 maint_run prune-stall-logs "$DEFAULT_STEP_TIMEOUT" \
   /usr/bin/python3 "${MAINT_DIR}/prune-stall-logs.py"
@@ -60,11 +75,7 @@ maint_run torrent-stall-recovery "$DEFAULT_STEP_TIMEOUT" \
 maint_run sonarr-prune-command-queue "$DEFAULT_STEP_TIMEOUT" \
   /usr/bin/python3 "${MAINT_DIR}/sonarr-prune-command-queue.py" || true
 # Optional host-only policies (temp/ is gitignored)
-shopt -s nullglob
-for f in "${TEMP_DIR}/"*-download-policy.py; do
-  maint_run "$(basename "$f" .py)" 60 /usr/bin/python3 "$f" || true
-done
-shopt -u nullglob
+run_temp_download_policies 60
 # --- Import orphans + qBit hygiene ---
 maint_run reconcile-torrents-library "$DEFAULT_STEP_TIMEOUT" \
   /usr/bin/python3 "${MAINT_DIR}/reconcile-torrents-library.py" --skip-dedupe-cleanup
@@ -86,11 +97,7 @@ if ! timeout 300 /usr/bin/python3 "${MAINT_DIR}/series-season-completeness.py"; 
   /usr/bin/python3 "${MAINT_DIR}/sonarr-prune-command-queue.py" || true
   timeout 120 /usr/bin/python3 "${MAINT_DIR}/sonarr-search-incomplete-seasons.py" || true
   timeout 120 /usr/bin/python3 "${MAINT_DIR}/sonarr-queue-missing-if-due.py" || true
-  shopt -s nullglob
-  for f in "${TEMP_DIR}/"*-download-policy.py; do
-    timeout 120 /usr/bin/python3 "$f" --search-seasons || true
-  done
-  shopt -u nullglob
+  run_temp_download_policies 120 --search-seasons
   maint_log "WARN: incomplete monitored TV season(s) — see ${STALL_LOG_DIR}/series-completeness.log"
 fi
 exit 0

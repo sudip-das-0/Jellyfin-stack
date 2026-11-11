@@ -42,14 +42,17 @@ mount_ssd() {
     echo "UUID=$JELLYFIN_UUID $JELLYFIN_MNT ext4 defaults,nofail,x-systemd.device-timeout=10,x-gvfs-show 0 2" \
       | need_sudo tee -a /etc/fstab >/dev/null
   fi
+  if grep "$JELLYFIN_UUID" /etc/fstab | grep -q 'user,exec'; then
+    need_sudo sed -i "/$JELLYFIN_UUID/s/,user,exec//g" /etc/fstab
+  fi
+  # Drop GNOME /run/media duplicate even when /mnt/jellyfin is already up.
+  findmnt -S "UUID=$JELLYFIN_UUID" -no TARGET 2>/dev/null | while read -r t; do
+    [[ "$t" == "$JELLYFIN_MNT" ]] && continue
+    need_sudo umount "$t" || true
+  done
   if mountpoint -q "$JELLYFIN_MNT"; then
     echo "already mounted"
   else
-    # Unmount desktop auto-mount (label "jellyfin ssd") if it grabbed the disk.
-    findmnt -S "UUID=$JELLYFIN_UUID" -no TARGET 2>/dev/null | while read -r t; do
-      [[ "$t" == "$JELLYFIN_MNT" ]] && continue
-      need_sudo umount "$t" || true
-    done
     need_sudo mount "$JELLYFIN_MNT"
   fi
   "$HOST_DIR/ensure-jellyfin-media-mount.sh"

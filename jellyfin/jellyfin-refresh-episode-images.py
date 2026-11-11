@@ -8,21 +8,16 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
-from pathlib import Path
 
 sys.path.insert(0, "/mnt/jellyfin/scripts/lib")
-from arr_common import JELLYFIN_DB, JELLYFIN_URL, MEDIA_ROOT, STALL_LOG_DIR  # noqa: E402
+from arr_common import JELLYFIN_DB, JELLYFIN_URL, MEDIA_ROOT, STALL_LOG_DIR, echo_script_log  # noqa: E402
 
 LOG = STALL_LOG_DIR / "jellyfin-episode-images.log"
 EPISODE_TYPE = "MediaBrowser.Controller.Entities.TV.Episode"
 
 
 def log(msg: str) -> None:
-    LOG.parent.mkdir(parents=True, exist_ok=True)
-    line = msg.rstrip()
-    with LOG.open("a", encoding="utf-8") as f:
-        f.write(line + "\n")
-    print(line)
+    echo_script_log(LOG, msg.rstrip())
 
 
 def api_key(name: str | None = None) -> str:

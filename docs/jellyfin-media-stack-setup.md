@@ -46,14 +46,15 @@ Seerr config: **`~/arr/config/jellyseerr/`** (folder name unchanged; app title i
 `/etc/fstab` entry (external drive):
 
 ```
-UUID=a76272dd-9421-425f-9d49-cb2f18715698 /mnt/jellyfin ext4 defaults,nofail,x-systemd.device-timeout=10 0 2
+UUID=0caa73f3-4f57-4549-8e6d-fbf323866d28 /mnt/jellyfin ext4 defaults,nofail,x-systemd.device-timeout=10,x-gvfs-show 0 2
 ```
 
-Optional (show drive in Files sidebar — requires sudo once):
+`x-gvfs-show` puts **one** shortcut in Files. Do **not** add `user,exec` — that makes GNOME also automount `/run/media/$USER/jellyfin ssd` and you get two icons for the same disk.
+
+If Files already shows two “jellyfin ssd” entries:
 
 ```bash
-sudo sed -i 's|/mnt/jellyfin ext4 defaults,nofail,x-systemd.device-timeout=10|/mnt/jellyfin ext4 defaults,nofail,x-systemd.device-timeout=10,x-gvfs-show,user,exec|' /etc/fstab
-sudo mount -o remount /mnt/jellyfin
+sudo /mnt/jellyfin/scripts/host/fix-duplicate-nautilus-ssd.sh
 ```
 
 ---
@@ -347,7 +348,7 @@ cat /sys/devices/pci0000:00/0000:00:1f.0/PNP0C09:00/VPC2004:00/conservation_mode
 | **More Prowlarr indexers** | Niche shows (e.g. some K-drama) may never grab on public indexers only. |
 | **Radarr quality profile** | Prefer **1080p H.264 / WEB-DL / remux** if LG often transcodes 4K or HEVC. |
 | **Gelato / Editors Choice** | Optional Jellyfin plugins — configure URLs or featured lists if you want them. |
-| **fstab `x-gvfs-show`** | External drive in Files sidebar (one-time sudo; see Storage section). |
+| **fstab `x-gvfs-show`** | One Files sidebar shortcut to `/mnt/jellyfin` (no `user,exec`). |
 
 **Already in good shape**
 

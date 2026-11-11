@@ -20,8 +20,6 @@ import os
 import sys
 import time
 import urllib.error
-from datetime import datetime
-from pathlib import Path
 
 sys.path.insert(0, "/mnt/jellyfin/scripts/lib")
 from arr_common import (
@@ -32,9 +30,9 @@ from arr_common import (
     STALL_LOG_DIR,
     STALL_RECOVERY_STATE_PATH,
     STALL_SECONDS_DEFAULT,
-    TZ,
     jellyfin_volume_ready,
     qbit_remove_client_only,
+    append_recovery_log,
     arr_json,
     arr_queue_remove,
     fetch_arr_queue,
@@ -50,12 +48,7 @@ STATE_PATH = STALL_RECOVERY_STATE_PATH
 
 
 def log(msg: str) -> None:
-    LOG_DIR.mkdir(parents=True, exist_ok=True)
-    day = datetime.now(TZ).strftime("%Y-%m-%d")
-    line = f"{datetime.now(TZ).strftime('%Y-%m-%d %H:%M:%S %Z')} {msg}\n"
-    with (LOG_DIR / f"recovery-{day}.log").open("a", encoding="utf-8") as f:
-        f.write(line)
-    print(line, end="")
+    append_recovery_log(msg, tag=None, echo=True)
 
 
 def load_state() -> dict:

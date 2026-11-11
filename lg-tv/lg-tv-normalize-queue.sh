@@ -2,7 +2,7 @@
 # Normalize lg-tv-optimize.queue paths to /mnt/jellyfin/... (dedupe /data/media aliases).
 set -euo pipefail
 # shellcheck source=stack-paths.sh
-source /mnt/jellyfin/scripts/lib/stack-paths.sh
+source "$(dirname "$0")/../lib/stack-paths.sh"
 QUEUE=$LG_TV_QUEUE
 [[ -f "$QUEUE" ]] || exit 0
 

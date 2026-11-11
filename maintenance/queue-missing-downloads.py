@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import sys
 import urllib.error
-from pathlib import Path
 
 sys.path.insert(0, "/mnt/jellyfin/scripts/lib")
 from arr_common import (
@@ -14,7 +13,7 @@ from arr_common import (
     SONARR_CONFIG,
     SONARR_URL,
     STALL_LOG_DIR,
-    append_script_log,
+    echo_script_log,
     queue_arr_command,
     read_api_key,
     wanted_missing_count,
@@ -24,8 +23,7 @@ LOG = STALL_LOG_DIR / "queue-missing-downloads.log"
 
 
 def log(msg: str) -> None:
-    append_script_log(LOG, msg)
-    print(msg)
+    echo_script_log(LOG, msg, rotate=True)
 
 
 def parse_args() -> argparse.Namespace:

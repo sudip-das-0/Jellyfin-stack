@@ -10,7 +10,7 @@ import urllib.parse
 from pathlib import Path
 
 sys.path.insert(0, "/mnt/jellyfin/scripts/lib")
-from arr_common import LOG_ROOT, qbit_json
+from arr_common import LOG_ROOT, echo_script_log, qbit_json
 
 CONFIG_PATH = Path("/mnt/jellyfin/scripts/config/qbit-network-profiles.json")
 STATE_PATH = LOG_ROOT / "qbit-network-profile.state.json"
@@ -18,11 +18,7 @@ LOG_PATH = LOG_ROOT / "stall-recovery" / "qbit-network-profile.log"
 
 
 def log(msg: str) -> None:
-    LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    line = f"{msg}\n"
-    with LOG_PATH.open("a", encoding="utf-8") as f:
-        f.write(line)
-    print(msg)
+    echo_script_log(LOG_PATH, msg)
 
 
 def current_wifi_ssid() -> str | None:

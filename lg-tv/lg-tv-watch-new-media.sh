@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Queue LG TV optimize for newly added media only (existing library ignored at first start).
 set -euo pipefail
-MEDIA=/mnt/jellyfin/media
-QUEUE_HELPER=/mnt/jellyfin/scripts/hooks/lg-tv-queue-path.sh
 # shellcheck source=stack-paths.sh
-source /mnt/jellyfin/scripts/lib/stack-paths.sh
+source "$(dirname "$0")/../lib/stack-paths.sh"
+MEDIA=$MEDIA_ROOT
+QUEUE_HELPER="${HOOKS_DIR}/lg-tv-queue-path.sh"
 BASELINE=$LG_TV_WATCHER_BASELINE
 POLL_SEC=45
 

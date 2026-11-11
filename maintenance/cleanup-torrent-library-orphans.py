@@ -30,10 +30,10 @@ from arr_common import (
     TORRENTS_ROOT,
     append_recovery_log,
     arr_json,
+    echo_script_log,
     qbit_delete,
     qbit_json,
     read_api_key,
-    rotate_log_file,
 )
 from orphan_import_helpers import resolve_episode_from_filename
 
@@ -47,11 +47,7 @@ NORM_RE = re.compile(r"[^a-z0-9]+")
 
 
 def log(msg: str) -> None:
-    STALL_LOG_DIR.mkdir(parents=True, exist_ok=True)
-    rotate_log_file(LOG_FILE)
-    with LOG_FILE.open("a", encoding="utf-8") as f:
-        f.write(msg + "\n")
-    print(msg)
+    echo_script_log(LOG_FILE, msg, rotate=True)
 
 
 def host_torrent_path(raw: str) -> str:

@@ -274,8 +274,6 @@ fi
 
 echo "=== LG TV queue paths ==="
 "$DIR/lg-tv/lg-tv-normalize-queue.sh" 2>/dev/null || true
-# shellcheck source=stack-paths.sh
-source /mnt/jellyfin/scripts/lib/stack-paths.sh
 if [[ -f "$LG_TV_QUEUE" ]]; then
   if grep -q '^/data/media/' "$LG_TV_QUEUE" 2>/dev/null; then
     warn "queue still has /data/media paths (re-run lg-tv-normalize-queue.sh)"

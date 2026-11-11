@@ -2,7 +2,7 @@
 # Drain LG TV optimize queue (one transcode at a time; re-queue on failure up to MAX_RETRIES).
 set -euo pipefail
 # shellcheck source=stack-paths.sh
-source /mnt/jellyfin/scripts/lib/stack-paths.sh
+source "$(dirname "$0")/../lib/stack-paths.sh"
 QUEUE=$LG_TV_QUEUE
 LOCK=$LG_TV_LOCK
 RETRIES=$LG_TV_RETRIES

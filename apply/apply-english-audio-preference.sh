@@ -159,6 +159,6 @@ curl -sS -X POST -H "X-Api-Key: $BAZ_KEY" "http://127.0.0.1:6767/api/system/task
 curl -sS -X POST -H "X-Api-Key: $BAZ_KEY" "http://127.0.0.1:6767/api/system/tasks?taskid=update_movies" -o /dev/null
 docker restart bazarr >/dev/null 2>&1 || true
 sleep 10
-/mnt/jellyfin/scripts/apply/bazarr-apply-opensubtitles-apikey.sh || true
+"${APPLY_DIR}/bazarr-apply-opensubtitles-apikey.sh" || true
 docker restart jellyfin >/dev/null 2>&1 || true
 echo "Media language policy applied."
