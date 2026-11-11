@@ -69,11 +69,76 @@ Deleting in **Jellyfin** only sticks if the file is removed from disk and Sonarr
 
 Permanent removal from the *arr apps (with blocklist): still use Sonarr/Radarr **Delete series/movie** with delete files + exclusion.
 
+### Delete / library sync (how the pieces fit)
+
+Three layers: **disk → *arr** (`sync-manual-deletes.py`), **SQLite while Jellyfin runs** (`jellyfin-delete-guard.py`), **offline DB surgery** (`jellyfin-db-trim.sh` + `jellyfin_db_lib`).
+
+```mermaid
+flowchart LR
+  subgraph online [Every 30 min]
+    DM[download-maintenance.sh]
+    DG[jellyfin-delete-guard]
+    SM[sync-manual-deletes.py]
+    DM --> DG --> SM
+  end
+  subgraph realtime [On Jellyfin UI delete]
+    WH[jellyfin-delete-webhook.service]
+    WH --> DG
+    WH --> SM
+  end
+  subgraph offline [Manual / after SSD recover]
+    TRIM[jellyfin-db-trim.sh]
+    REC[recover-jellyfin-drive.sh]
+    REC --> DG
+    TRIM --> JDB[jellyfin_db_lib offline trim]
+  end
+```
+
+| Script | Role |
+|--------|------|
+| `sync-manual-deletes.py` | File gone on disk → unmonitor Sonarr/Radarr, clear queue, drop qBit |
+| `jellyfin-delete-guard.py` | UserData sanitize + capped ghost BaseItem purge (online) |
+| `jellyfin-db-trim.sh` | Stop Jellyfin; legacy `/media`, phantoms, full missing-file purge |
+| `jellyfin-delete-webhook.py` | Webhook listener → guard + delete sync queue |
+
+**Thin aliases:** `jellyfin-fix-phantom-movies.sh` → `jellyfin-db-trim.sh` · `jellyfin-ssd-poll.sh` → `jellyfin-drive-guard.sh` · `import-sidecar-subs.sh` → `hooks/import-sidecar-subs.sh`
+
 ## Unmonitor completed imports
 
 After Sonarr/Radarr finish importing, episodes/movies are **unmonitored** so they are not re-grabbed. Apply once: `./apply-unmonitor-completed-policy.sh` (Sonarr **Auto unmonitor previously downloaded episodes**, Radarr **movies** equivalent, plus **On Import** hooks). Optional backfill for titles already on disk (TV + movies): `UNMONITOR_BACKFILL=1 ./apply-unmonitor-completed-policy.sh`.
 
 ## Maintenance chain (`download-maintenance.sh`)
+
+```mermaid
+flowchart TB
+  subgraph hygiene [Log hygiene and library sync]
+    P1[prune-stall-logs]
+    P2[jellyfin-delete-guard]
+    P3[sync-manual-deletes]
+    P4[unmonitor-on-import]
+    P1 --> P2 --> P3 --> P4
+  end
+  subgraph qbit [qBit queue health]
+    Q1[queue-dedupe]
+    Q2[torrent-stall-recovery]
+    Q3[sonarr-prune-command-queue]
+    Q1 --> Q2 --> Q3
+  end
+  subgraph import [Import orphans and qBit hygiene]
+    I1[reconcile-torrents-library]
+    I2[cleanup-qbit-missing]
+    I3[cleanup-qbit-completed]
+    I4[cleanup-partial-series]
+    I1 --> I2 --> I3 --> I4
+  end
+  subgraph lg [LG TV and Jellyfin metadata]
+    L1[lg-tv-topup-queue]
+    L2[episode image refresh]
+    L3[series-season-completeness]
+    L1 --> L2 --> L3
+  end
+  hygiene --> qbit --> import --> lg
+```
 
 1. `prune-stall-logs.py` — rotate/trim logs (14-day `recovery-*.log`, tail LG optimize log)
 2. `jellyfin-delete-guard.py --sanitize-all` — strip corrupt Jellyfin UserData keys (safe online)
@@ -95,7 +160,7 @@ Cleanup checklist: [`docs/CLEANUP-PLAN.md`](docs/CLEANUP-PLAN.md)
 
 Manual missing search: `queue-missing-downloads.py` (`--tv-only` / `--movies-only`). Failed grabs: `retry-failed-downloads.py` (same flags; clears blocklist unless `--keep-blocklist`).
 
-Shared Python: `arr_common.py` (`fetch_arr_queue`, `STALL_RECOVERY_STATE_PATH`, `QBIT_ACTIVE_DOWNLOAD_STATES`, `JELLYFIN_*`, `STALL_SECONDS_DEFAULT=43200`, `qbit_remove_client_only`) · Bash paths: `stack-paths.sh` (keep in sync)
+Shared Python: `arr_common.py` (`fetch_arr_queue`, `STALL_RECOVERY_STATE_PATH`, `QBIT_ACTIVE_DOWNLOAD_STATES`, `JELLYFIN_*`, `STALL_SECONDS_DEFAULT=43200`, `qbit_remove_client_only`, `MEDIA_ROOT` / `TORRENTS_ROOT`) · Registrations: `register_arr_notifications.py`, `register_bazarr_webhooks.py` · Bash paths: `stack-paths.sh` (keep in sync)
 
 Legacy torrent dirs on NVMe: `./purge-internal-torrent-data.sh` (removes `~/data/torrents` stubs; optional NVMe `/mnt/jellyfin` skeleton when SSD unmounted).
 
@@ -109,7 +174,7 @@ Download policy (re-apply after stack reset): `./apply-no-seed-download-policy.s
 
 ## LG TV direct-play pipeline
 
-Import (Sonarr/Radarr) → `hooks/arr-import-postprocess.sh` → episode-matched sidecar subs → `logs/lg-tv/optimize.queue` → `lg-tv-optimize-media.sh` (H.264 + AAC stereo, external subs only; then removes the matching file under `/mnt/jellyfin/torrents`). Set `LG_TV_DELETE_TORRENT_ORIGINAL=0` to keep download copies. Batch transcodes prefer Intel QSV/VAAPI decode+encode (`encode tier ok (av1-qsv|hevc-qsv|h264-remux-hw|…)` in `lg-tv-optimize.log`). Re-apply stack policy: `./apply-qsv-transcode-policy.sh` (Jellyfin `encoding.xml` + `lg-tv-optimize.service` env). Failed encodes re-queue at **front** (`LG_TV_OPTIMIZE_MAX_RETRIES`, default 4: 3× HW-only AV1 attempts then 1× with `libx264` allowed). Override: `LG_TV_HW_DECODE=0`, `LG_TV_AV1_QSV=0`, `LG_TV_AV1_HW_ATTEMPTS`. Verify: `./stack-verify.sh`.
+Import (Sonarr/Radarr) → `hooks/arr-import-postprocess.sh` → episode-matched sidecar subs → `logs/lg-tv/optimize.queue` → `lg-tv-optimize-media.sh` (H.264 + AAC stereo, external subs only; then removes the matching file under `/mnt/jellyfin/torrents`). **REMUX / large lossless-audio releases are skipped** by default (`LG_TV_SKIP_REMUX=1` in `stack-paths.sh` / `lg-tv-optimize.service`). Set `LG_TV_DELETE_TORRENT_ORIGINAL=0` to keep download copies. Batch transcodes prefer Intel QSV/VAAPI decode+encode (`encode tier ok (av1-qsv|hevc-qsv|h264-remux-hw|…)` in `lg-tv-optimize.log`). Re-apply stack policy: `./apply-qsv-transcode-policy.sh` (Jellyfin `encoding.xml` + `lg-tv-optimize.service` env). Failed encodes re-queue at **front** (`LG_TV_OPTIMIZE_MAX_RETRIES`, default 4: 3× HW-only AV1 attempts then 1× with `libx264` allowed). Override: `LG_TV_HW_DECODE=0`, `LG_TV_AV1_QSV=0`, `LG_TV_AV1_HW_ATTEMPTS`. Verify: `./stack-verify.sh`.
 
 ## Logs (under `/mnt/jellyfin/logs/`)
 

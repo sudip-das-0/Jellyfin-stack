@@ -181,7 +181,7 @@ need_exec "$DIR/hooks/import-sidecar-subs.sh"
 REPO_UNIT="$DIR/systemd/user/lg-tv-optimize.service"
 USER_UNIT="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/lg-tv-optimize.service"
 if [[ -f "$REPO_UNIT" && -f "$USER_UNIT" ]]; then
-  for var in LG_TV_AV1_HW_ATTEMPTS LG_TV_OPTIMIZE_MAX_RETRIES LG_TV_HW_DECODE LG_TV_AV1_QSV LG_TV_MAXRATE LG_TV_BUFSIZE LG_TV_TARGET_VBITRATE_BPS LG_TV_MAX_GIB_PER_HOUR; do
+  for var in LG_TV_AV1_HW_ATTEMPTS LG_TV_OPTIMIZE_MAX_RETRIES LG_TV_HW_DECODE LG_TV_AV1_QSV LG_TV_MAXRATE LG_TV_BUFSIZE LG_TV_TARGET_VBITRATE_BPS LG_TV_MAX_GIB_PER_HOUR LG_TV_SKIP_REMUX LG_TV_SKIP_LOSSLESS_AUDIO LG_TV_SKIP_LOSSLESS_MIN_BYTES; do
     repo_val=$(grep -E "^Environment=${var}=" "$REPO_UNIT" | head -1 | cut -d= -f3- || true)
     user_val=$(grep -E "^Environment=${var}=" "$USER_UNIT" | head -1 | cut -d= -f3- || true)
     if [[ -n "$repo_val" && "$repo_val" == "$user_val" ]]; then

@@ -16,6 +16,7 @@ from arr_common import STALL_LOG_DIR  # noqa: E402
 from jellyfin_db_lib import (  # noqa: E402
     connect,
     finish_delete,
+    media_library_mount_healthy,
     prepare_items_for_delete,
     purge_delete_ghosts,
     sanitize_userdata,
@@ -112,9 +113,12 @@ def main() -> int:
                 )
 
         if args.purge_ghosts:
-            n = purge_delete_ghosts(conn, limit=args.ghost_limit)
-            if n:
-                log(f"purge-ghosts: removed {n} movie/episode row(s) with missing files")
+            if not media_library_mount_healthy():
+                log("purge-ghosts: skipped — jellyfin media SSD not healthy")
+            else:
+                n = purge_delete_ghosts(conn, limit=args.ghost_limit)
+                if n:
+                    log(f"purge-ghosts: removed {n} movie/episode row(s) with missing files")
     finally:
         conn.close()
     return 0

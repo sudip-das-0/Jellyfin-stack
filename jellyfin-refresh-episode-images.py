@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import sqlite3
 import sys
 import urllib.error
@@ -11,9 +10,10 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-JELLYFIN_DB = Path("/mnt/jellyfin/jellyfin/config/data/jellyfin.db")
-JELLYFIN_URL = "http://127.0.0.1:8096"
-LOG = Path("/mnt/jellyfin/logs/stall-recovery/jellyfin-episode-images.log")
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from arr_common import JELLYFIN_DB, JELLYFIN_URL, MEDIA_ROOT, STALL_LOG_DIR  # noqa: E402
+
+LOG = STALL_LOG_DIR / "jellyfin-episode-images.log"
 EPISODE_TYPE = "MediaBrowser.Controller.Entities.TV.Episode"
 
 
@@ -55,8 +55,9 @@ def host_path_to_container(path: str) -> str:
     p = path.strip()
     if p.startswith("/data/media/"):
         return "/media/" + p[len("/data/media/") :]
-    if p.startswith("/mnt/jellyfin/media/"):
-        return "/media/" + p[len("/mnt/jellyfin/media/") :]
+    media = str(MEDIA_ROOT)
+    if p.startswith(media + "/"):
+        return "/media/" + p[len(media) + 1 :]
     if p.startswith("/media/"):
         return p
     raise ValueError(f"Not a library media path: {path}")

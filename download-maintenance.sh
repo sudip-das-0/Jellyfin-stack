@@ -59,6 +59,8 @@ maint_run torrent-stall-recovery "$DEFAULT_STEP_TIMEOUT" \
   /usr/bin/python3 "${SCRIPTS_ROOT}/torrent-stall-recovery.py"
 maint_run sonarr-prune-command-queue "$DEFAULT_STEP_TIMEOUT" \
   /usr/bin/python3 "${SCRIPTS_ROOT}/sonarr-prune-command-queue.py" || true
+maint_run sonarr-one-piece-policy 60 \
+  /usr/bin/python3 "${SCRIPTS_ROOT}/sonarr-one-piece-download-policy.py" || true
 # --- Import orphans + qBit hygiene ---
 maint_run reconcile-torrents-library "$DEFAULT_STEP_TIMEOUT" \
   /usr/bin/python3 "${SCRIPTS_ROOT}/reconcile-torrents-library.py" --skip-dedupe-cleanup
@@ -68,6 +70,10 @@ maint_run cleanup-qbit-completed 120 \
   /usr/bin/python3 "${SCRIPTS_ROOT}/cleanup-qbit-completed.py"
 maint_run cleanup-partial-series "$DEFAULT_STEP_TIMEOUT" \
   /usr/bin/python3 "${SCRIPTS_ROOT}/cleanup-partial-series.py"
+maint_run sync-movie-subtitles 3600 \
+  env SUBSYNC_MAX_OFFSET_SEC="${SUBSYNC_MAX_OFFSET_SEC:-180}" \
+  /usr/bin/python3 "${SCRIPTS_ROOT}/sync-movie-subtitles.py" --all \
+  --limit "${SUBSYNC_MOVIES_PER_RUN:-2}" || true
 # --- LG TV + Jellyfin metadata ---
 maint_run lg-tv-topup-queue 300 \
   "${SCRIPTS_ROOT}/lg-tv-topup-queue.sh" || true
@@ -77,6 +83,7 @@ maint_run jellyfin-episode-image-queue 120 \
   "${SCRIPTS_ROOT}/jellyfin-process-episode-image-refresh.sh" || true
 if ! timeout 300 /usr/bin/python3 "${SCRIPTS_ROOT}/series-season-completeness.py"; then
   /usr/bin/python3 "${SCRIPTS_ROOT}/sonarr-prune-command-queue.py" || true
+  timeout 120 /usr/bin/python3 "${SCRIPTS_ROOT}/sonarr-one-piece-download-policy.py" --search-seasons || true
   timeout 120 /usr/bin/python3 "${SCRIPTS_ROOT}/sonarr-queue-missing-if-due.py" || true
   maint_log "WARN: incomplete monitored TV season(s) — see ${STALL_LOG_DIR}/series-completeness.log"
 fi

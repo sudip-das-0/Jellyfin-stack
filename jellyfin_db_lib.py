@@ -19,6 +19,7 @@ from arr_common import JELLYFIN_DB, JELLYFIN_MNT  # noqa: E402
 
 DB = Path(os.environ.get("JELLYFIN_DB", str(JELLYFIN_DB)))
 HOST_ROOT = Path(os.environ.get("JELLYFIN_HOST_ROOT", str(JELLYFIN_MNT)))
+MARKER = HOST_ROOT / ".jellyfin-external-drive"
 
 MEDIA_TYPES = ("%Movie%", "%Episode%")
 
@@ -58,6 +59,20 @@ ORPHAN_FK_PAIRS: tuple[tuple[str, str, str, str], ...] = (
     ("KeyframeData", "ItemId", "BaseItems", "Id"),
     ("HomeSection", "DisplayPreferencesId", "DisplayPreferences", "Id"),
 )
+
+
+def media_library_mount_healthy() -> bool:
+    """True only when the jellyfin media SSD is mounted and readable."""
+    media = HOST_ROOT / "media"
+    try:
+        if not MARKER.is_file():
+            return False
+        if not media.is_dir():
+            return False
+        next(media.iterdir())
+        return True
+    except OSError:
+        return False
 
 
 def connect() -> sqlite3.Connection:
@@ -181,7 +196,7 @@ def lookup_ids_by_path(conn: sqlite3.Connection, raw_path: str) -> list[str]:
     seen: set[str] = set()
     for p in candidates:
         for row in conn.execute(
-            'SELECT "Id" FROM "BaseItems" WHERE "path" = ? AND (Type LIKE ? OR Type LIKE ?)',
+            'SELECT "Id" FROM "BaseItems" WHERE "Path" = ? AND (Type LIKE ? OR Type LIKE ?)',
             (p, *MEDIA_TYPES),
         ):
             iid = row[0]
@@ -193,7 +208,7 @@ def lookup_ids_by_path(conn: sqlite3.Connection, raw_path: str) -> list[str]:
 
 def media_file_missing(conn: sqlite3.Connection, item_id: str) -> bool | None:
     row = conn.execute(
-        'SELECT path, Type FROM "BaseItems" WHERE "Id" = ?',
+        'SELECT Path, Type FROM "BaseItems" WHERE "Id" = ?',
         (item_id.upper(),),
     ).fetchone()
     if not row:
@@ -231,11 +246,14 @@ def finish_delete(
         result["sanitized_userdata"] += sanitize_userdata(conn, item_id=iid)
 
     purge: list[str] = []
+    mount_ok = media_library_mount_healthy()
     for iid in target_ids:
         if not item_exists(conn, iid):
             continue
         missing = media_file_missing(conn, iid)
-        if force_if_still_present or missing is True:
+        if not mount_ok:
+            continue
+        if missing is True:
             purge.append(iid)
 
     if purge:
@@ -244,28 +262,57 @@ def finish_delete(
     return result
 
 
-def purge_delete_ghosts(conn: sqlite3.Connection, *, limit: int = 100) -> int:
-    """Remove movie/episode rows whose media file is gone (failed UI delete cleanup)."""
+def _item_missing_on_disk(typ: str, path: str, *, unknown_path_missing: bool) -> bool:
+    hp = container_path_to_host(path)
+    if hp is None:
+        return unknown_path_missing
+    if hp.is_file():
+        return False
+    if typ.endswith("Series") or typ.endswith("Season"):
+        return not hp.is_dir()
+    return True
+
+
+def collect_missing_baseitem_ids(
+    conn: sqlite3.Connection,
+    *,
+    type_filter_sql: str = "",
+    limit: int | None = None,
+    unknown_path_missing: bool = False,
+) -> list[str]:
     rows = conn.execute(
-        """SELECT Id, path, Type FROM BaseItems
-           WHERE path IS NOT NULL AND path != ''
-           AND (Type LIKE '%Movie%' OR Type LIKE '%Episode%')"""
+        f"""SELECT Id, Type, Path FROM BaseItems
+           WHERE Path IS NOT NULL AND Path != '' {type_filter_sql}"""
     ).fetchall()
     missing: list[str] = []
-    for iid, path, typ in rows:
-        if typ.endswith("Series") or typ.endswith("Season"):
-            continue
-        hp = container_path_to_host(path)
-        if not hp or not hp.is_file():
-            missing.append(iid)
-        if len(missing) >= limit:
+    for item_id, typ, path in rows:
+        if _item_missing_on_disk(typ, path, unknown_path_missing=unknown_path_missing):
+            missing.append(item_id)
+        if limit is not None and len(missing) >= limit:
             break
-    if not missing:
+    return missing
+
+
+def _purge_missing_baseitems(conn: sqlite3.Connection, item_ids: list[str]) -> int:
+    if not item_ids:
         return 0
-    for iid in missing:
+    for iid in item_ids:
         sanitize_userdata(conn, item_id=iid)
-    purge_baseitems(conn, missing)
-    return len(missing)
+    purge_baseitems(conn, item_ids)
+    return len(item_ids)
+
+
+def purge_delete_ghosts(conn: sqlite3.Connection, *, limit: int = 100) -> int:
+    """Remove movie/episode rows whose media file is gone (failed UI delete cleanup)."""
+    if not media_library_mount_healthy():
+        return 0
+    missing = collect_missing_baseitem_ids(
+        conn,
+        type_filter_sql="AND (Type LIKE '%Movie%' OR Type LIKE '%Episode%')",
+        limit=limit,
+        unknown_path_missing=False,
+    )
+    return _purge_missing_baseitems(conn, missing)
 
 
 def prune_orphan_foreign_keys(conn: sqlite3.Connection) -> int:
@@ -346,23 +393,7 @@ def prepare_items_for_delete(conn: sqlite3.Connection, item_ids: Iterable[str]) 
 
 def trim_missing_media_baseitems(conn: sqlite3.Connection) -> int:
     """Remove movie/episode (etc.) rows whose path does not exist on disk (Jellyfin stopped)."""
-    rows = conn.execute(
-        'SELECT Id, Type, path FROM BaseItems WHERE path IS NOT NULL AND path != ""'
-    ).fetchall()
-    missing: list[str] = []
-    for item_id, typ, path in rows:
-        hp = container_path_to_host(path)
-        if not hp:
-            continue
-        if hp.is_file():
-            continue
-        if typ.endswith("Series") or typ.endswith("Season"):
-            if hp.is_dir():
-                continue
-        missing.append(item_id)
-    if not missing:
+    if not media_library_mount_healthy():
         return 0
-    for iid in missing:
-        sanitize_userdata(conn, item_id=iid)
-    purge_baseitems(conn, missing)
-    return len(missing)
+    missing = collect_missing_baseitem_ids(conn, unknown_path_missing=False)
+    return _purge_missing_baseitems(conn, missing)

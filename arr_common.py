@@ -16,7 +16,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 TZ = ZoneInfo("Asia/Kolkata")
-CONFIG_ROOT = Path(os.environ.get("CONFIG_ROOT", "/home/devdas/arr"))
+CONFIG_ROOT = Path(os.environ.get("CONFIG_ROOT", os.path.expanduser("~/arr")))
 SCRIPTS_ROOT = Path("/mnt/jellyfin/scripts")
 HOOKS_DIR = SCRIPTS_ROOT / "hooks"
 ARR_ROOT = CONFIG_ROOT  # *arr Docker config on internal NVMe (not in git)
@@ -302,9 +302,28 @@ def qbit_queue_protected_hashes() -> set[str]:
     return protected
 
 
+def qbit_import_blocked_hashes() -> set[str]:
+    """Torrents Sonarr/Radarr marked completed in client but import is still blocked (keep data)."""
+    protected: set[str] = set()
+    for base_url, config in (
+        (SONARR_URL, SONARR_CONFIG),
+        (RADARR_URL, RADARR_CONFIG),
+    ):
+        api_key = read_api_key(config)
+        for row in fetch_arr_queue(base_url, api_key):
+            state = (row.get("trackedDownloadState") or "").casefold()
+            status = (row.get("trackedDownloadStatus") or "").casefold()
+            if state == "importblocked" or status == "warning":
+                download_id = row.get("downloadId")
+                if download_id:
+                    protected.add(str(download_id).casefold())
+    return protected
+
+
 def qbit_all_protected_hashes() -> set[str]:
-    """Queue rows + post-complete import grace window."""
+    """Queue rows + import-blocked + post-complete import grace window."""
     out = qbit_queue_protected_hashes()
+    out |= qbit_import_blocked_hashes()
     out |= qbit_completed_grace_hashes()
     return out
 

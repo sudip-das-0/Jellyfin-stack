@@ -35,7 +35,9 @@ Downloads only when `ensure-jellyfin-media-mount.sh` passes (marker `.jellyfin-e
 
 ## Registration
 
-`*arr` CustomScript connections: `register_arr_notifications.py` (called from thin `register-arr-*.sh` wrappers).
+`*arr` CustomScript connections: `register_arr_notifications.py` (thin `register-arr-*.sh` wrappers).
+
+Sonarr/Radarr → Bazarr webhooks: `register_bazarr_webhooks.py` (`register-bazarr-webhooks.sh`).
 
 Verify: `./stack-verify.sh`
 

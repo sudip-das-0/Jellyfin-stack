@@ -8,15 +8,17 @@ import time
 import urllib.parse
 from pathlib import Path
 
-from arr_common import SONARR_URL, arr_json, video_container_magic_ok
+from arr_common import MEDIA_ROOT, SCRIPTS_ROOT, SONARR_URL, TORRENTS_ROOT, arr_json, video_container_magic_ok
 
-TORRENTS = Path("/mnt/jellyfin/torrents")
-MEDIA = Path("/mnt/jellyfin/media")
+TORRENTS = TORRENTS_ROOT
+MEDIA = MEDIA_ROOT
 STAGING = TORRENTS / ".reconcile-staging"
 VIDEO_EXT = {".mkv", ".mp4", ".m4v", ".avi", ".wmv", ".ts"}
 EP_RE = re.compile(r"[Ss](\d{1,2})[Ee](\d{1,2})")
 HORRIBLE_NARUTO = re.compile(r"naruto\s*shippuuden\s*-\s*(\d+)", re.I)
 NC_RAW_ONEPIECE = re.compile(r"海贼王\s*-\s*(\d+)", re.I)
+# Netflix/KQRM season packs use absolute ep in the E field (e.g. S004E093), not Sonarr SxxEyy.
+ONEPIECE_KQRM_ABS = re.compile(r"One\.Piece\.S\d{3}E(\d{2,3})", re.I)
 
 SERIES_ALIASES: dict[str, str] = {
     "海贼王": "One Piece",
@@ -106,6 +108,11 @@ def resolve_episode_from_filename(name: str, api_key: str, cache: dict) -> dict 
         series_title = "One Piece"
         absolutes = [int(m.group(1))]
 
+    m = ONEPIECE_KQRM_ABS.search(name)
+    if m:
+        series_title = "One Piece"
+        absolutes = [int(m.group(1))]
+
     if not series_title:
         return None
 
@@ -144,6 +151,7 @@ def import_friendly_staging_path(host_file: Path, api_key: str, cache: dict) -> 
     needs_stage = bool(
         HORRIBLE_NARUTO.search(host_file.name)
         or NC_RAW_ONEPIECE.search(host_file.name)
+        or ONEPIECE_KQRM_ABS.search(host_file.name)
         or (parsed and not (parsed.get("episodeNumbers") or []))
     )
     if not needs_stage:
@@ -212,7 +220,7 @@ def import_orphan_into_library(
 
 
 def queue_lg_optimize(host_media_path: Path) -> None:
-    script = Path("/mnt/jellyfin/scripts/hooks/lg-tv-queue-path.sh")
+    script = SCRIPTS_ROOT / "hooks/lg-tv-queue-path.sh"
     if not script.is_file() or not host_media_path.is_file():
         return
     env = {**subprocess.os.environ, "LG_TV_QUEUE_NO_START": "1"}

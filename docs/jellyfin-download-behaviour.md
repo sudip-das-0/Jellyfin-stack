@@ -103,7 +103,8 @@ Runs immediately after dedupe in `download-maintenance.sh`.
 | New files on disk | `lg-tv-new-media-watch.service` (inotify) queues paths not in baseline. |
 | Transcode | **`lg-tv-optimize.service`** runs continuously (daemon): drains queue **back-to-back** (no gap between files), then waits for new queue entries (inotify or ~10 s poll). One encode at a time. Logs **file size before/after**. |
 | Retries | Re-queue at **front** on failure. Default **`LG_TV_OPTIMIZE_MAX_RETRIES=4`**: **3** HW-only AV1 attempts (`LG_TV_AV1_HW_ATTEMPTS=3`), then one run may use **`libx264`**; then **dead-letter** if still failing. |
-| Replace | `lg-tv-optimize-media.sh` HEVC→H.264 / AV1→H.264: **QSV → VAAPI → libx264 (CPU, AV1 only after HW retries)**; then **replaces** the original. |
+| Replace | `lg-tv-optimize-media.sh` HEVC→H.264 / AV1→H.264: **QSV → VAAPI → libx264 (CPU, AV1 only after HW retries)**; then **replaces** the original only if output passes **duration + 8s video decode** checks. |
+| Protected | **`LG_TV_SKIP_REMUX=1`** (default): filenames with **REMUX** and large **DTS/TrueHD/FLAC** sources are **not** optimized (logged → `optimize.skipped`). Override per run with `LG_TV_SKIP_REMUX=0`. |
 | Failures | Failed jobs are **re-queued** (up to 3×). **4K/UHD** allowed (`LG_TV_MAX_HEIGHT=0`). Queue existing 4K: `lg-tv-queue-min-height.sh`. |
 
 **Timers / services (user systemd, `linger` on):**

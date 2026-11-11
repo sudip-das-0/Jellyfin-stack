@@ -220,17 +220,26 @@ def process_sonarr(
     api_key: str, torrents: list[dict], tmap: dict[str, dict], state: dict, now: float
 ) -> None:
     by_episode: dict[int, list[dict]] = {}
+    hash_episode_ids: dict[str, list[int]] = {}
     for row in fetch_arr_queue(SONARR_URL, api_key):
         eid = row.get("episodeId")
         if not eid:
             continue
         by_episode.setdefault(eid, []).append(row)
+        did = row.get("downloadId")
+        if did:
+            hash_episode_ids.setdefault(norm_qbit_hash(did), []).append(int(eid))
 
     for episode_id, rows in by_episode.items():
         job_key = f"sonarr:{episode_id}"
         hashes = [norm_qbit_hash(r["downloadId"]) for r in rows if r.get("downloadId")]
         if not hashes:
             continue
+        if len(hashes) == 1:
+            shared = hash_episode_ids.get(hashes[0]) or []
+            if len(shared) > 1 and episode_id != min(shared):
+                # One season/multi-episode torrent — stall recovery once per hash.
+                continue
         job = ensure_job_tracks(state, job_key, hashes)
         job["queue_ids"] = sorted({r["id"] for r in rows})
         tried = set(job.get("tried_guids") or [])

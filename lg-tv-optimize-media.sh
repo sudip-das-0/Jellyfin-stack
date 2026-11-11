@@ -4,6 +4,8 @@
 # Storage: skip when <= LG_TV_MAX_GIB_PER_HOUR (default 5 GiB/h); shrink/transcode above that.
 # H.264 above target GiB/h: HW transcode when LG_TV_H264_SHRINK=1; else remux copy only when under target.
 # AV1: all HW tiers first; libx264 only when LG_TV_AV1_ALLOW_CPU=1 (after LG_TV_AV1_HW_ATTEMPTS queue failures).
+# LG_TV_SKIP_REMUX=1 (default): never replace REMUX / large lossless-audio sources (optimize.skipped).
+# encode_output_usable requires ~8s of video decode, not duration alone, before replacing the source file.
 # LG_TV_HW_DECODE=0 disables HW decode on H.264 remux. LG_TV_AV1_QSV=0 forces CPU AV1 transcode.
 # Usage: lg-tv-optimize-media.sh /mnt/jellyfin/media/series/Show/Season 1/file.mkv
 set -euo pipefail
@@ -36,10 +38,37 @@ SKIPPED=$LG_TV_SKIPPED
 mkdir -p "$(dirname "$LOG")" "$(dirname "$SKIPPED")"
 log() { echo "$(date -Iseconds) $*" | tee -a "$LOG"; }
 
+allow_cpu_libx264() {
+  [[ "${LG_TV_ALLOW_CPU_FALLBACK:-0}" == 1 ]]
+}
+
+REMUX_IN="${LG_TV_REMUX_INPUT_FLAGS:--fflags +genpts+igndts -err_detect ignore_err}"
+
 mark_permanent_skip() {
   touch "$SKIPPED"
   grep -Fxq "$src" "$SKIPPED" 2>/dev/null || echo "$src" >> "$SKIPPED"
   /mnt/jellyfin/scripts/lg-tv-purge-queue-path.sh "$src" 2>/dev/null || true
+}
+
+# Uses SOURCE_SIZE and acodec set during probe (before optimize).
+should_skip_premium_source() {
+  [[ "${LG_TV_SKIP_REMUX:-1}" == 1 ]] || return 1
+  local base lower
+  base=$(basename "$src")
+  lower="${base,,}"
+  if [[ "$lower" == *remux* || "$lower" == *bluray*remux* ]]; then
+    return 0
+  fi
+  local path_lower="${src,,}"
+  if [[ "$path_lower" == *" blu-ray remux"* ]]; then
+    return 0
+  fi
+  if [[ "${LG_TV_SKIP_LOSSLESS_AUDIO:-1}" == 1 && "$SOURCE_SIZE" -gt $((LG_TV_SKIP_LOSSLESS_MIN_BYTES:-8589934592)) ]]; then
+    case "$acodec" in
+      dts|dts_*|truehd|mlp|pcm_*|flac) return 0 ;;
+    esac
+  fi
+  return 1
 }
 
 human_bytes() {
@@ -201,9 +230,19 @@ over_storage_target() {
   awk -v g="$g" -v max="${LG_TV_MAX_GIB_PER_HOUR:-5}" 'BEGIN { exit (g > max ? 0 : 1) }'
 }
 
-vinfo=$(probe "$cin") || vinfo=""
-ainfo=$(aprobe "$cin") || ainfo=""
+vinfo=""
+ainfo=""
+for _probe_try in 1 2 3; do
+  vinfo=$(probe "$cin") || vinfo=""
+  ainfo=$(aprobe "$cin") || ainfo=""
+  [[ -n "${vinfo%%,*}" ]] && break
+  sleep 2
+done
 vcodec=${vinfo%%,*}
+if [[ -z "$vcodec" && -n "${LG_TV_PROBE_VCODEC:-}" ]]; then
+  vcodec="$LG_TV_PROBE_VCODEC"
+  log "warn: video probe empty; using queue hint vcodec=${vcodec}: $src"
+fi
 vbitrate=${vinfo##*,}
 acodec=${ainfo%%,*}
 achannels=${ainfo##*,}
@@ -214,6 +253,11 @@ SOURCE_SIZE=$(stat -c '%s' "$src" 2>/dev/null || echo 0)
 MEDIA_DUR=$(duration_sec "$cin")
 MEDIA_GIB=$(media_gib_per_hour "$SOURCE_SIZE" "$MEDIA_DUR")
 EFF_VBPS=$(effective_video_bps "$vbitrate")
+if should_skip_premium_source; then
+  log "skip (protected source — REMUX/lossless; set LG_TV_SKIP_REMUX=0 to allow): $src"
+  mark_permanent_skip
+  exit 0
+fi
 AUDIO_MAPS=$(audio_map_args "$cin")
 if [[ -z "$AUDIO_MAPS" ]]; then
   # Remuxed files often drop language tags; still LG-playable (H.264 + stereo AAC).
@@ -294,12 +338,6 @@ if ! flock -w "${LG_TV_ENCODE_LOCK_WAIT_SEC:-86400}" 201; then
   exit 1
 fi
 
-# After exclusive lock: drop orphan jellyfin-ffmpeg jobs left under /cache/lgopt (daemon restart, etc.).
-docker exec jellyfin bash -c 'for p in /proc/[0-9]*; do
-  cmd=$(tr "\0" " " < "$p/cmdline" 2>/dev/null) || continue
-  case "$cmd" in *ffmpeg*cache/lgopt*) kill "${p##*/}" 2>/dev/null ;; esac
-done' 2>/dev/null || true
-
 rm -f "$tmp_host"
 docker exec jellyfin mkdir -p /cache/lgopt
 docker exec jellyfin rm -f "$tmp_cin"
@@ -320,10 +358,30 @@ stop_lgopt_encoders() {
   docker exec jellyfin rm -f "$tmp_cin" 2>/dev/null || true
 }
 
+encode_output_usable() {
+  local min_ratio="${1:-0.92}"
+  docker exec jellyfin test -s "$tmp_cin" || return 1
+  local out_dur src_dur
+  out_dur=$(docker exec jellyfin /usr/lib/jellyfin-ffmpeg/ffprobe -v error -show_entries format=duration \
+    -of csv=p=0 "$tmp_cin" 2>/dev/null | head -1 | tr -d '[:space:]')
+  src_dur=${MEDIA_DUR%%.*}
+  out_dur=${out_dur%%.*}
+  if [[ -z "$out_dur" || "$out_dur" -le 0 ]]; then
+    return 1
+  fi
+  if [[ -n "$src_dur" && "$src_dur" -gt 0 ]]; then
+    awk -v o="$out_dur" -v s="$src_dur" -v r="$min_ratio" 'BEGIN { exit (o >= s * r ? 0 : 1) }' || return 1
+  fi
+  # Duration alone is not enough (corrupt H.264 can keep container metadata).
+  docker exec jellyfin /usr/lib/jellyfin-ffmpeg/ffmpeg -v error -nostdin -t 8 -i "$tmp_cin" -map 0:v:0 -f null - 2>/dev/null || return 1
+  return 0
+}
+
 run_jellyfin_encode() {
   local tier=$1
   local body=$2
   local host_script remote="/cache/lgopt/enc-${tier}.sh"
+  local tier_ok=0
   stop_lgopt_encoders
   host_script=$(mktemp)
   {
@@ -335,16 +393,24 @@ run_jellyfin_encode() {
   docker cp "$host_script" "jellyfin:${remote}" >/dev/null
   rm -f "$host_script"
   if timeout "$ENCODE_TIMEOUT" docker exec jellyfin bash "$remote"; then
+    tier_ok=1
+  else
+    local rc=$?
+    if [[ "$rc" -eq 124 ]]; then
+      log "encode tier timed out after ${ENCODE_TIMEOUT}s ($tier): $src"
+    fi
+    if [[ "$tier" == *remux* ]] && encode_output_usable; then
+      log "encode tier recovered ($tier, output duration ok despite ffmpeg exit ${rc}): $src"
+      tier_ok=1
+    elif [[ "$tier_ok" -eq 0 ]]; then
+      log "encode tier failed ($tier): $src"
+    fi
+  fi
+  if [[ "$tier_ok" -eq 1 ]]; then
     log "encode tier ok ($tier): $src"
     return 0
   fi
-  local rc=$?
   docker exec jellyfin rm -f "$tmp_cin" 2>/dev/null || true
-  if [[ "$rc" -eq 124 ]]; then
-    log "encode tier timed out after ${ENCODE_TIMEOUT}s ($tier): $src"
-  else
-    log "encode tier failed ($tier): $src"
-  fi
   return 1
 }
 
@@ -402,14 +468,16 @@ hevc_to_h264_tiered() {
       $AUD_TAIL \
       $O" && return 0
 
-  run_jellyfin_encode libx264 \
-    "/usr/lib/jellyfin-ffmpeg/ffmpeg -y -hide_banner -loglevel error \
-      -i $Q \
-      -map 0:v:0 -c:v libx264 -preset veryfast -crf 23 -maxrate ${LG_TV_MAXRATE} -bufsize ${LG_TV_BUFSIZE} \
-      $AUD_TAIL \
-      $O" && return 0
+  if allow_cpu_libx264; then
+    run_jellyfin_encode libx264 \
+      "/usr/lib/jellyfin-ffmpeg/ffmpeg -y -hide_banner -loglevel error \
+        -i $Q \
+        -map 0:v:0 -c:v libx264 -preset veryfast -crf 23 -maxrate ${LG_TV_MAXRATE} -bufsize ${LG_TV_BUFSIZE} \
+        $AUD_TAIL \
+        $O" && return 0
+  fi
 
-  log "all encode tiers failed (qsv-vaapi, qsv-sw, vaapi, libx264): $src"
+  log "all HW encode tiers failed (CPU fallback disabled): $src"
   return 1
 }
 
@@ -449,14 +517,16 @@ h264_to_h264_tiered() {
       $AUD_TAIL \
       $O" && return 0
 
-  run_jellyfin_encode h264-shrink-libx264 \
-    "/usr/lib/jellyfin-ffmpeg/ffmpeg -y -hide_banner -loglevel error \
-      -i $Q \
-      -map 0:v:0 -c:v libx264 -preset veryfast -crf 23 -maxrate ${LG_TV_MAXRATE} -bufsize ${LG_TV_BUFSIZE} \
-      $AUD_TAIL \
-      $O" && return 0
+  if allow_cpu_libx264; then
+    run_jellyfin_encode h264-shrink-libx264 \
+      "/usr/lib/jellyfin-ffmpeg/ffmpeg -y -hide_banner -loglevel error \
+        -i $Q \
+        -map 0:v:0 -c:v libx264 -preset veryfast -crf 23 -maxrate ${LG_TV_MAXRATE} -bufsize ${LG_TV_BUFSIZE} \
+        $AUD_TAIL \
+        $O" && return 0
+  fi
 
-  log "all H.264 shrink tiers failed (qsv, vaapi, libx264): $src"
+  log "all H.264 shrink HW tiers failed (CPU fallback disabled): $src"
   return 1
 }
 
@@ -521,7 +591,7 @@ av1_to_h264_tiered() {
       $AUD_TAIL \
       $O" && return 0
 
-  if [[ "${LG_TV_AV1_ALLOW_CPU:-0}" == 1 ]]; then
+  if [[ "${LG_TV_AV1_ALLOW_CPU:-0}" == 1 ]] && allow_cpu_libx264; then
     log "AV1 HW tiers exhausted; trying libx264 (CPU) after prior queue failures: $src"
     run_jellyfin_encode libx264 \
       "/usr/lib/jellyfin-ffmpeg/ffmpeg -y -hide_banner -loglevel error \
@@ -571,14 +641,16 @@ vp9_to_h264_tiered() {
       $AUD_TAIL \
       $O" && return 0
 
-  run_jellyfin_encode libx264 \
-    "/usr/lib/jellyfin-ffmpeg/ffmpeg -y -hide_banner -loglevel error \
-      -i $Q \
-      -map 0:v:0 -c:v libx264 -preset veryfast -crf 23 -maxrate ${LG_TV_MAXRATE} -bufsize ${LG_TV_BUFSIZE} \
-      $AUD_TAIL \
-      $O" && return 0
+  if allow_cpu_libx264; then
+    run_jellyfin_encode libx264 \
+      "/usr/lib/jellyfin-ffmpeg/ffmpeg -y -hide_banner -loglevel error \
+        -i $Q \
+        -map 0:v:0 -c:v libx264 -preset veryfast -crf 23 -maxrate ${LG_TV_MAXRATE} -bufsize ${LG_TV_BUFSIZE} \
+        $AUD_TAIL \
+        $O" && return 0
+  fi
 
-  log "all VP9 encode tiers failed: $src"
+  log "all VP9 HW encode tiers failed (CPU fallback disabled): $src"
   return 1
 }
 
@@ -607,14 +679,15 @@ generic_to_h264_tiered() {
       $AUD_TAIL \
       $O" && return 0
 
-  if libx264_from_source; then
+  if allow_cpu_libx264 && libx264_from_source; then
     return 0
   fi
-  log "all generic encode tiers failed: $src"
+  log "all generic HW encode tiers failed (CPU fallback disabled): $src"
   return 1
 }
 
 libx264_from_source() {
+  allow_cpu_libx264 || return 1
   run_jellyfin_encode libx264 \
     "/usr/lib/jellyfin-ffmpeg/ffmpeg -y -hide_banner -loglevel error \
       -i $Q \
@@ -637,34 +710,54 @@ elif [[ "$vcodec" == "h264" ]]; then
     h264_to_h264_tiered || exit 1
   else
   h264_remux_ok=0
-  if [[ "${LG_TV_HW_DECODE:-1}" == 1 ]]; then
-    if run_jellyfin_encode h264-remux-hw \
-      "/usr/lib/jellyfin-ffmpeg/ffmpeg -y -hide_banner -loglevel error \
-        -init_hw_device vaapi=va:${LG_TV_DRI_NODE},driver=${LG_TV_DRI_DRIVER} \
-        -hwaccel qsv -hwaccel_output_format qsv -c:v h264_qsv \
-        -i $Q \
-        -map 0:v:0 -c:v copy \
-        $AUDIO_MAPS -c:a aac -ac 2 -b:a 192k \
-        -sn -map_chapters -1 \
-        -max_muxing_queue_size 4096 \
-        $O"; then
-      h264_remux_ok=1
-    fi
+  h264_remux_stereo="/usr/lib/jellyfin-ffmpeg/ffmpeg -y -hide_banner -loglevel fatal -nostdin \
+    $REMUX_IN \
+    -i $Q \
+    -map 0:v:0 -c:v copy \
+    $AUDIO_MAPS -c:a aac -ac 2 -b:a 192k \
+    -sn -map_chapters -1 \
+    -max_muxing_queue_size 8192 \
+    $O"
+  h264_remux_audiocopy="/usr/lib/jellyfin-ffmpeg/ffmpeg -y -hide_banner -loglevel fatal -nostdin \
+    $REMUX_IN \
+    -i $Q \
+    -map 0:v:0 -c:v copy \
+    $AUDIO_MAPS -c:a copy \
+    -sn -map_chapters -1 \
+    -max_muxing_queue_size 8192 \
+    $O"
+  if run_jellyfin_encode h264-remux "$h264_remux_stereo"; then
+    h264_remux_ok=1
   fi
   if [[ "$h264_remux_ok" -eq 0 ]]; then
     stop_lgopt_encoders
-    run_jellyfin_encode h264-remux \
-      "/usr/lib/jellyfin-ffmpeg/ffmpeg -y -hide_banner -loglevel error \
+    log "stereo AAC remux failed — trying audio copy (5.1/multichannel preserved): $src"
+    if run_jellyfin_encode h264-remux-audiocopy "$h264_remux_audiocopy"; then
+      h264_remux_ok=1
+    fi
+  fi
+  if [[ "$h264_remux_ok" -eq 0 && "${LG_TV_HW_DECODE:-1}" == 1 ]]; then
+    stop_lgopt_encoders
+    run_jellyfin_encode h264-remux-hw \
+      "/usr/lib/jellyfin-ffmpeg/ffmpeg -y -hide_banner -loglevel fatal -nostdin \
+        $REMUX_IN \
+        -init_hw_device vaapi=va:${LG_TV_DRI_NODE},driver=${LG_TV_DRI_DRIVER} \
+        -hwaccel vaapi -hwaccel_output_format vaapi \
         -i $Q \
         -map 0:v:0 -c:v copy \
-        $AUDIO_MAPS -c:a aac -ac 2 -b:a 192k \
+        $AUDIO_MAPS -c:a copy \
         -sn -map_chapters -1 \
-        -max_muxing_queue_size 4096 \
+        -max_muxing_queue_size 8192 \
         $O" || exit 1
+  elif [[ "$h264_remux_ok" -eq 0 ]]; then
+    exit 1
   fi
   fi
 elif [[ "$vcodec" == "vp9" ]]; then
   vp9_to_h264_tiered || exit 1
+elif [[ -z "$vcodec" ]]; then
+  log "ERROR: unknown video codec after probe retries — refusing CPU generic transcode: $src"
+  exit 1
 else
   generic_to_h264_tiered || exit 1
 fi

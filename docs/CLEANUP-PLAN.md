@@ -12,7 +12,7 @@
 | 3 | Maintenance section headers, stall 12h, external SSD guards | Done |
 | 4 | **Your edits:** `jellyfin_db_lib`, delete guard in maintenance + recover | Done |
 | 5 | `apply-*.sh` + `bazarr-*` use `stack-paths.sh` | Done (qsv policy uses `JELLYFIN_CONFIG_ROOT`) |
-| 6 | Bazarr webhooks → Python (optional) | Deferred |
+| 6 | Bazarr webhooks → Python | Done (`register_bazarr_webhooks.py`) |
 | 7 | Split `lg-tv-optimize-media.sh` / `sync-manual-deletes.py` | Deferred (comments only if touched) |
 
 ## Second pass (after Jellyfin delete / DB edits)
@@ -29,8 +29,10 @@
 
 **Optional follow-ups**
 
-- `lg-tv-queue-min-height.sh` → source `hooks/lg-tv-queue-lib.sh` like m2ts/heavy queues.
-- Remaining intentional literals: Jellyfin library `options.xml` paths under `$JELLYFIN_MNT`, `stack-verify` symlink checks, large `lg-tv-optimize-media.sh`.
+- Remaining intentional literals: Jellyfin library `options.xml` paths under `$JELLYFIN_MNT`, subtitle helpers (`normalize-subtitle-sidecars.py`), `stack-verify` symlink checks, large `lg-tv-optimize-media.sh`.
+- `lg-tv-queue-min-height.sh` → uses `hooks/lg-tv-queue-lib.sh` (done).
+- Python paths: core maintenance + reconcile use `arr_common` `MEDIA_ROOT` / `TORRENTS_ROOT` (done); sidecar scripts may still hardcode mounts.
+- `jellyfin_db_lib`: shared `collect_missing_baseitem_ids` for online/offline ghost purge (done).
 
 ## Do not merge
 

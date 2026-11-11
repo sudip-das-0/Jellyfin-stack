@@ -16,12 +16,13 @@ from arr_common import (
     SONARR_CONFIG,
     SONARR_URL,
     STALL_LOG_DIR,
+    TORRENTS_ROOT,
     arr_json,
     read_api_key,
     rotate_log_file,
 )
 
-TORRENTS = Path("/mnt/jellyfin/torrents")
+TORRENTS = TORRENTS_ROOT
 LOG_FILE = STALL_LOG_DIR / "partial-series-cleanup.log"
 VERBOSE = os.environ.get("CLEANUP_VERBOSE", "") == "1"
 

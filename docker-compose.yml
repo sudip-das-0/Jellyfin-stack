@@ -1,7 +1,7 @@
 # Arr stack — Docker configs on internal NVMe; library on /mnt/jellyfin (2TB jellyfin-ssd, ext4).
 # Legacy HDD (read-only archive): /mnt/jellyfin-hdd after migrate-hdd-to-ssd.sh finish.
 # Git repo + operator docs: /mnt/jellyfin/scripts/README.md
-# Docker configs (not in git): /home/devdas/arr/config/
+# Docker configs (not in git): host path via ARR_CONFIG_ROOT in `.env` (default below).
 # Backup copy: docs/jellyfin-docker-compose.yml.backup
 
 services:
@@ -13,7 +13,7 @@ services:
       PGID: "1000"
       TZ: Asia/Kolkata
     volumes:
-      - /home/devdas/arr/config/prowlarr:/config
+      - ${ARR_CONFIG_ROOT:-/home/devdas/arr/config}/prowlarr:/config
     ports:
       - "9696:9696"
     restart: unless-stopped
@@ -28,7 +28,7 @@ services:
       WEBUI_PORT: "8080"
       TORRENTING_PORT: "6881"
     volumes:
-      - /home/devdas/arr/config/qbittorrent:/config
+      - ${ARR_CONFIG_ROOT:-/home/devdas/arr/config}/qbittorrent:/config
       - /mnt/jellyfin/logs/qbittorrent:/config/qBittorrent/logs
       - /mnt/jellyfin:/data
     ports:
@@ -55,7 +55,7 @@ services:
       PGID: "1000"
       TZ: Asia/Kolkata
     volumes:
-      - /home/devdas/arr/config/radarr:/config
+      - ${ARR_CONFIG_ROOT:-/home/devdas/arr/config}/radarr:/config
       - /mnt/jellyfin/logs/radarr:/config/logs
       - /mnt/jellyfin:/data
       - /mnt/jellyfin/scripts/hooks:/data/scripts:ro
@@ -75,7 +75,7 @@ services:
       PGID: "1000"
       TZ: Asia/Kolkata
     volumes:
-      - /home/devdas/arr/config/sonarr:/config
+      - ${ARR_CONFIG_ROOT:-/home/devdas/arr/config}/sonarr:/config
       - /mnt/jellyfin/logs/sonarr:/config/logs
       - /mnt/jellyfin:/data
       - /mnt/jellyfin/scripts/hooks:/data/scripts:ro
@@ -95,7 +95,7 @@ services:
       PGID: "1000"
       TZ: Asia/Kolkata
     volumes:
-      - /home/devdas/arr/config/bazarr:/config
+      - ${ARR_CONFIG_ROOT:-/home/devdas/arr/config}/bazarr:/config
       - /mnt/jellyfin/media:/data/media
     ports:
       - "6767:6767"
@@ -112,7 +112,7 @@ services:
       TZ: Asia/Kolkata
       LOG_LEVEL: info
     volumes:
-      - /home/devdas/arr/config/jellyseerr:/app/config
+      - ${ARR_CONFIG_ROOT:-/home/devdas/arr/config}/jellyseerr:/app/config
     ports:
       - "5055:5055"
     extra_hosts:

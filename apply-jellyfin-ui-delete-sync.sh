@@ -22,33 +22,34 @@ auth=(-H "Authorization: MediaBrowser Token=\"$API_KEY\"")
 
 wait_jellyfin() {
   for _ in $(seq 1 40); do
-    curl -sf http://127.0.0.1:8096/System/Info/Public >/dev/null 2>&1 && return 0
+    curl -sf "${JELLYFIN_URL}/System/Info/Public" >/dev/null 2>&1 && return 0
     sleep 2
   done
-  echo "Jellyfin not responding on :8096" >&2
+  echo "Jellyfin not responding at ${JELLYFIN_URL}" >&2
   return 1
 }
 
-installed=$(curl -sS "${auth[@]}" http://127.0.0.1:8096/Plugins |
+installed=$(curl -sS "${auth[@]}" "${JELLYFIN_URL}/Plugins" |
   python3 -c "import json,sys; print(any(p.get('Id')=='$PLUGIN_GUID' for p in json.load(sys.stdin)))")
 
 if [[ "$installed" != True ]]; then
   echo "Installing Jellyfin Webhook plugin $PLUGIN_VERSION..."
   curl -sS -X POST "${auth[@]}" \
-    "http://127.0.0.1:8096/Packages/Installed/Webhook?Version=$PLUGIN_VERSION" -o /dev/null
+    "${JELLYFIN_URL}/Packages/Installed/Webhook?Version=$PLUGIN_VERSION" -o /dev/null
   docker restart jellyfin >/dev/null
   wait_jellyfin
 fi
 
-export API_KEY PLUGIN_GUID WEBHOOK_URL
+export API_KEY PLUGIN_GUID WEBHOOK_URL JELLYFIN_URL
 python3 <<'PY'
 import json, os, urllib.request
 
 guid = os.environ["PLUGIN_GUID"]
 url = os.environ["WEBHOOK_URL"]
 api_key = os.environ["API_KEY"]
+jellyfin = os.environ["JELLYFIN_URL"].rstrip("/")
 auth = {"Authorization": f'MediaBrowser Token="{api_key}"'}
-cfg_url = f"http://127.0.0.1:8096/Plugins/{guid}/Configuration"
+cfg_url = f"{jellyfin}/Plugins/{guid}/Configuration"
 req = urllib.request.Request(cfg_url, headers=auth)
 config = json.load(urllib.request.urlopen(req))
 name = "Arr delete sync"

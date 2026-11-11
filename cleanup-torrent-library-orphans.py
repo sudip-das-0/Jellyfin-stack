@@ -21,11 +21,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from arr_common import (
+    MEDIA_ROOT,
     RADARR_CONFIG,
     RADARR_URL,
     SONARR_CONFIG,
     SONARR_URL,
     STALL_LOG_DIR,
+    TORRENTS_ROOT,
     append_recovery_log,
     arr_json,
     qbit_delete,
@@ -35,8 +37,8 @@ from arr_common import (
 )
 from orphan_import_helpers import resolve_episode_from_filename
 
-TORRENTS = Path("/mnt/jellyfin/torrents")
-MEDIA = Path("/mnt/jellyfin/media")
+TORRENTS = TORRENTS_ROOT
+MEDIA = MEDIA_ROOT
 VIDEO_EXT = {".mkv", ".mp4", ".m4v", ".avi", ".wmv", ".ts", ".m2ts"}
 LOG_FILE = STALL_LOG_DIR / "torrent-library-cleanup.log"
 
@@ -53,9 +55,10 @@ def log(msg: str) -> None:
 
 
 def host_torrent_path(raw: str) -> str:
+    tor = str(TORRENTS)
     if raw.startswith("/data/torrents"):
-        return "/mnt/jellyfin/torrents" + raw[len("/data/torrents") :]
-    if raw.startswith("/mnt/jellyfin/torrents"):
+        return tor + raw[len("/data/torrents") :]
+    if raw.startswith(tor):
         return raw
     return raw
 
@@ -65,9 +68,10 @@ def norm(s: str) -> str:
 
 
 def map_docker_media(path: str) -> Path:
+    media = str(MEDIA)
     if path.startswith("/data/media/"):
-        return Path("/mnt/jellyfin/media") / path[len("/data/media/") :]
-    if path.startswith("/mnt/jellyfin/media/"):
+        return MEDIA / path[len("/data/media/") :]
+    if path.startswith(media + "/"):
         return Path(path)
     return Path(path)
 

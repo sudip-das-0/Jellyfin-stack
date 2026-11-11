@@ -138,9 +138,23 @@ process_queue_batch() {
     : | atomic_write "$QUEUE" || return 1
   fi
 
-  local prior_failures
+  local prior_failures vcodec_hint=""
   prior_failures=$(retry_count "$path")
-  if [[ "$prior_failures" -ge "${LG_TV_AV1_HW_ATTEMPTS:-3}" ]]; then
+  if [[ "$prior_failures" -gt 0 ]]; then
+    local backoff=$(( prior_failures < 20 ? prior_failures * 15 : 300 ))
+    log "retry backoff ${backoff}s (prior failures=${prior_failures}): $path"
+    sleep "$backoff"
+  fi
+  vcodec_hint=$(
+    rel="${path#/mnt/jellyfin/media/}"
+    cin="/media/${rel}"
+    qin=$(printf %q "$cin")
+    docker exec jellyfin bash -c "/usr/lib/jellyfin-ffmpeg/ffprobe -v error -select_streams v:0 \
+      -show_entries stream=codec_name -of csv=p=0 ${qin} 2>/dev/null" | head -1 | tr -d '[:space:]'
+  )
+  export LG_TV_PROBE_VCODEC="$vcodec_hint"
+  if [[ "$vcodec_hint" == "av1" && "$prior_failures" -ge "${LG_TV_AV1_HW_ATTEMPTS:-3}" \
+    && "${LG_TV_ALLOW_CPU_FALLBACK:-0}" == 1 ]]; then
     export LG_TV_AV1_ALLOW_CPU=1
     log "AV1 libx264 fallback enabled (prior failures=${prior_failures}): $path"
   else

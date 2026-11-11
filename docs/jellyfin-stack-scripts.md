@@ -26,6 +26,7 @@ Live scripts: `/mnt/jellyfin/scripts/`; import hooks in `scripts/hooks/` (mounte
 |--------|---------|
 | `register-stack-hooks.sh` | **Run after stack reset** — import hook + Bazarr webhooks + OpenSubtitles API key |
 | `register_arr_notifications.py` | *arr CustomScript connections (import / delete-sync / unmonitor) |
+| `register_bazarr_webhooks.py` | Sonarr/Radarr Webhook → Bazarr on download/upgrade |
 | `apply-bazarr-subtitle-defaults.sh` | English profile + backfill missing subs |
 | `bazarr-resync-from-arr.sh` | Fix Bazarr FK/sync errors — purge cache DB + full *arr resync |
 | `apply-jellyfin-opensubtitles.sh` | Install/configure Jellyfin Open Subtitles plugin (same OS.com account as Bazarr) |
@@ -42,6 +43,6 @@ Live scripts: `/mnt/jellyfin/scripts/`; import hooks in `scripts/hooks/` (mounte
 
 1. **Bazarr webhook** — online subs (NapiProjekt, subf2m, Animetosho, OpenSubtitles.com)
 2. **`arr-import-postprocess.sh`** — episode-matched release `.srt` → `.eng.srt`, then LG TV queue
-3. **`lg-tv-optimize-media.sh`** — extract embedded subs, remux for LG direct play; video **QSV → VAAPI → libx264** (AV1: libx264 only after **`LG_TV_AV1_HW_ATTEMPTS`** queue failures)
+3. **`lg-tv-optimize-media.sh`** — extract embedded subs, remux for LG direct play; video **QSV → VAAPI → libx264** (AV1: libx264 only after **`LG_TV_AV1_HW_ATTEMPTS`** queue failures). Skips **REMUX / large lossless-audio** when **`LG_TV_SKIP_REMUX=1`**; refuses bad outputs (decode check).
 
 Removed / do not use: `arr-queue-dedupe.py` (duplicate of `queue-dedupe.py`).

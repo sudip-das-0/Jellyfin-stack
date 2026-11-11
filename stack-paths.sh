@@ -12,7 +12,7 @@ STALL_LOG_DIR="${LOG_ROOT}/stall-recovery"
 LG_TV_DIR="${LOG_ROOT}/lg-tv"
 SCRIPTS_ROOT=/mnt/jellyfin/scripts
 HOOKS_DIR="${SCRIPTS_ROOT}/hooks"
-CONFIG_ROOT="${CONFIG_ROOT:-/home/devdas/arr}"
+CONFIG_ROOT="${CONFIG_ROOT:-${HOME}/arr}"
 SONARR_CONFIG="${CONFIG_ROOT}/config/sonarr/config.xml"
 RADARR_CONFIG="${CONFIG_ROOT}/config/radarr/config.xml"
 BAZARR_CONFIG="${CONFIG_ROOT}/config/bazarr/config/config.yaml"
@@ -56,3 +56,11 @@ export LG_TV_TARGET_VBITRATE_BPS="${LG_TV_TARGET_VBITRATE_BPS:-15000000}"
 export LG_TV_MAX_GIB_PER_HOUR="${LG_TV_MAX_GIB_PER_HOUR:-5}"
 # H.264 above LG_TV_MAX_GIB_PER_HOUR uses HW transcode (not -c:v copy) when LG_TV_H264_SHRINK=1.
 export LG_TV_H264_SHRINK="${LG_TV_H264_SHRINK:-1}"
+# Never fall back to libx264 (CPU) unless explicitly enabled (QSV/VAAPI only by default).
+export LG_TV_ALLOW_CPU_FALLBACK="${LG_TV_ALLOW_CPU_FALLBACK:-0}"
+# Tolerate minor stream corruption during remux (-c:v copy).
+export LG_TV_REMUX_INPUT_FLAGS="${LG_TV_REMUX_INPUT_FLAGS:--fflags +genpts+igndts -err_detect ignore_err}"
+# Never replace Blu-ray REMUX / large lossless-audio sources (Radarr quality releases).
+export LG_TV_SKIP_REMUX="${LG_TV_SKIP_REMUX:-1}"
+export LG_TV_SKIP_LOSSLESS_AUDIO="${LG_TV_SKIP_LOSSLESS_AUDIO:-1}"
+export LG_TV_SKIP_LOSSLESS_MIN_BYTES="${LG_TV_SKIP_LOSSLESS_MIN_BYTES:-8589934592}"

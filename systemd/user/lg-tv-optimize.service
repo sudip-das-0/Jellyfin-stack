@@ -17,6 +17,9 @@ Environment=LG_TV_BUFSIZE=30M
 Environment=LG_TV_TARGET_VBITRATE_BPS=15000000
 Environment=LG_TV_MAX_GIB_PER_HOUR=5
 Environment=LG_TV_H264_SHRINK=1
+Environment=LG_TV_SKIP_REMUX=1
+Environment=LG_TV_SKIP_LOSSLESS_AUDIO=1
+Environment=LG_TV_SKIP_LOSSLESS_MIN_BYTES=8589934592
 ExecStart=/mnt/jellyfin/scripts/lg-tv-optimize-daemon.sh
 Restart=always
 RestartSec=15

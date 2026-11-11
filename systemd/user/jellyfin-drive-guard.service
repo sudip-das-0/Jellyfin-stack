@@ -3,5 +3,5 @@ Description=Poll jellyfin USB SSD every 5s; quiet wait while unplugged
 
 [Service]
 Type=oneshot
-ExecStart=/home/devdas/arr/jellyfin-drive-guard/jellyfin-drive-guard.sh
+ExecStart=/mnt/jellyfin/scripts/jellyfin-drive-guard.sh
 SuccessExitStatus=0

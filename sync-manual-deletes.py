@@ -15,6 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from arr_common import (
+    MEDIA_ROOT,
     RADARR_CONFIG,
     RADARR_URL,
     SONARR_CONFIG,
@@ -28,7 +29,7 @@ from arr_common import (
     read_api_key,
 )
 
-MEDIA = Path("/mnt/jellyfin/media")
+MEDIA = MEDIA_ROOT
 LOG = STALL_LOG_DIR / "sync-manual-deletes.log"
 DELETE_QUEUE = STALL_LOG_DIR / "delete-sync.queue"
 IMPORT_EVENTS = frozenset(
