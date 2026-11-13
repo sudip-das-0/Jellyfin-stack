@@ -19,6 +19,7 @@ from arr_common import (
     TORRENTS_ROOT,
     arr_json,
     echo_script_log,
+    fetch_arr_queue,
     read_api_key,
 )
 
@@ -50,19 +51,9 @@ def should_remove_queue_row(row: dict) -> bool:
 
 def remove_failed_queue(api_key: str, *, base_url: str, label: str) -> int:
     to_remove: list[tuple[int, str]] = []
-    page = 1
-    while True:
-        extra = "&includeUnknownSeriesItems=true" if base_url == SONARR_URL else ""
-        q = arr_json(f"{base_url}/api/v3/queue?page={page}&pageSize=100{extra}", api_key)
-        records = (q or {}).get("records") if isinstance(q, dict) else []
-        if not records:
-            break
-        for row in records:
-            if should_remove_queue_row(row) and row.get("id"):
-                to_remove.append((int(row["id"]), row.get("title") or ""))
-        if len(records) < 100:
-            break
-        page += 1
+    for row in fetch_arr_queue(base_url, api_key):
+        if should_remove_queue_row(row) and row.get("id"):
+            to_remove.append((int(row["id"]), row.get("title") or ""))
 
     removed = 0
     for i in range(0, len(to_remove), 40):

@@ -3,45 +3,41 @@
 from __future__ import annotations
 
 import argparse
-import importlib.util
 import sys
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-POLICY = SCRIPT_DIR.parent / "lib" / "media-lang-policy.py"
+sys.path.insert(0, str(SCRIPT_DIR.parent / "lib"))
+from arr_common import JELLYFIN_MNT, MEDIA_ROOT, load_media_lang_policy  # noqa: E402
+
 VIDEO_SUFFIXES = {".mkv", ".mp4"}
 
 
 def default_media_root() -> Path:
-    for candidate in (Path("/mnt/jellyfin/media"), Path("/data/media")):
+    for candidate in (MEDIA_ROOT, Path("/data/media")):
         if candidate.is_dir():
             return candidate
-    return Path("/mnt/jellyfin/media")
+    return MEDIA_ROOT
 
 
 def resolve_video(path: Path) -> Path | None:
     if path.is_file():
         return path
     s = str(path)
+    host_prefix = f"{JELLYFIN_MNT}/"
     if s.startswith("/data/media/"):
-        alt = Path("/mnt/jellyfin") / Path(s[len("/data/") :])
+        alt = JELLYFIN_MNT / Path(s[len("/data/") :])
         if alt.is_file():
             return alt
-    if s.startswith("/mnt/jellyfin/media/"):
-        alt = Path("/data") / Path(s[len("/mnt/jellyfin/") :])
+    if s.startswith(str(MEDIA_ROOT) + "/"):
+        alt = Path("/data") / Path(s[len(host_prefix) :])
         if alt.is_file():
             return alt
     return None
 
 
 def load_policy():
-    if not POLICY.is_file():
-        raise FileNotFoundError(f"media-lang-policy.py not found next to {__file__}")
-    spec = importlib.util.spec_from_file_location("mlp", POLICY)
-    mlp = importlib.util.module_from_spec(spec)
-    assert spec.loader
-    spec.loader.exec_module(mlp)
-    return mlp
+    return load_media_lang_policy()
 
 
 def iter_videos(root: Path):

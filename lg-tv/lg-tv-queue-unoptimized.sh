@@ -3,6 +3,10 @@
 set -euo pipefail
 # shellcheck source=stack-paths.sh
 source "$(dirname "$0")/../lib/stack-paths.sh"
+if ! lg_tv_optimize_enabled; then
+  echo "LG_TV_OPTIMIZE_ENABLED=0 — not queueing library"
+  exit 0
+fi
 
 DRY=0
 [[ "${1:-}" == "--dry-run" ]] && DRY=1
@@ -34,7 +38,7 @@ touch "$LG_TV_SKIPPED" 2>/dev/null || true
 while IFS= read -r path; do
   [[ -n "$path" && -f "$path" ]] || continue
   if grep -Fxq "$path" "$LG_TV_SKIPPED" 2>/dev/null; then
-    if /usr/bin/python3 "${LIB_DIR}/lg_tv_storage.py" "$path" "${LG_TV_MAX_GIB_PER_HOUR:-5}" >/dev/null 2>&1; then
+    if /usr/bin/python3 "${LIB_DIR}/lg_tv_storage.py" "$path" "${LG_TV_MAX_GIB_PER_HOUR:-0}" >/dev/null 2>&1; then
       skipped=$((skipped + 1))
       continue
     fi

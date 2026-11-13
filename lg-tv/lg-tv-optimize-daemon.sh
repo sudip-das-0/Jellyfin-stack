@@ -3,6 +3,10 @@
 set -euo pipefail
 # shellcheck source=stack-paths.sh
 source "$(dirname "$0")/../lib/stack-paths.sh"
+if ! lg_tv_optimize_enabled; then
+  echo "$(date -Iseconds) [daemon] LG_TV_OPTIMIZE_ENABLED=0 — exiting" >> "${STALL_LOG_DIR}/lg-tv-optimize.log"
+  exit 0
+fi
 QUEUE=$LG_TV_QUEUE
 LOG=$LG_TV_LOG
 PROCESS="${LGTV_SCRIPTS}/lg-tv-process-queue.sh"

@@ -15,7 +15,7 @@ case "$path" in
   *) exit 0 ;;
 esac
 case "$path" in
-  /mnt/jellyfin/media/*|/data/media/*) ;;
+  "${MEDIA_ROOT}"/*|/data/media/*) ;;
   *) exit 0 ;;
 esac
 

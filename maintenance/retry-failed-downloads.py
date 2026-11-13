@@ -16,7 +16,10 @@ from arr_common import (
     STALL_LOG_DIR,
     arr_json,
     echo_script_log,
+    episode_ids_with_active_downloads,
+    norm_qbit_hash,
     queue_arr_command,
+    qbit_torrents,
     read_api_key,
 )
 
@@ -118,7 +121,11 @@ def main() -> int:
             clear_blocklist(RADARR_URL, radarr_key, "Radarr")
 
     if run_sonarr:
-        failed_eps = sonarr_failed_episode_ids(sonarr_key)
+        tmap = {norm_qbit_hash(t["hash"]): t for t in qbit_torrents()}
+        active_eps = episode_ids_with_active_downloads(sonarr_key, tmap)
+        failed_all = sonarr_failed_episode_ids(sonarr_key)
+        failed_eps = failed_all - active_eps
+        skipped = len(failed_all & active_eps)
         if failed_eps:
             queue_arr_command(
                 SONARR_URL,
@@ -126,12 +133,27 @@ def main() -> int:
                 "EpisodeSearch",
                 episodeIds=sorted(failed_eps),
             )
-            log(f"Sonarr EpisodeSearch for {len(failed_eps)} failed episode(s): {sorted(failed_eps)}")
+            log(
+                f"Sonarr EpisodeSearch for {len(failed_eps)} failed episode(s) "
+                f"(skipped {skipped} in active queue)"
+            )
         else:
-            log("Sonarr: no downloadFailed episodes in history")
+            if skipped:
+                log(f"Sonarr: no failed episodes to retry (skipped {skipped} in active queue)")
+            else:
+                log("Sonarr: no downloadFailed episodes in history")
 
-        queue_arr_command(SONARR_URL, sonarr_key, "MissingEpisodeSearch")
-        log("Sonarr MissingEpisodeSearch queued")
+        cmds = arr_json(f"{SONARR_URL}/api/v3/command", sonarr_key)
+        missing_running = isinstance(cmds, list) and any(
+            c.get("name") == "MissingEpisodeSearch"
+            and c.get("status") in ("queued", "started")
+            for c in cmds
+        )
+        if missing_running:
+            log("Sonarr: MissingEpisodeSearch already running — skip")
+        else:
+            queue_arr_command(SONARR_URL, sonarr_key, "MissingEpisodeSearch")
+            log("Sonarr MissingEpisodeSearch queued")
 
     if run_radarr:
         queue_arr_command(RADARR_URL, radarr_key, "MissingMoviesSearch")

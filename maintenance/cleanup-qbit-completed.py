@@ -5,11 +5,10 @@ from __future__ import annotations
 import os
 import sys
 import urllib.error
-import urllib.parse
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
-from arr_common import append_recovery_log, qbit_all_protected_hashes, qbit_json
+from arr_common import append_recovery_log, qbit_all_protected_hashes, qbit_delete, qbit_json
 
 VERBOSE = os.environ.get("QBIT_CLEANUP_VERBOSE", "") == "1"
 
@@ -49,10 +48,7 @@ def main() -> int:
     if not remove:
         return 0
 
-    body = urllib.parse.urlencode(
-        {"hashes": "|".join(remove), "deleteFiles": "false"}
-    ).encode()
-    qbit_json("/api/v2/torrents/delete", method="POST", data=body)
+    qbit_delete(remove, delete_files=False)
     msg = f"removed {len(remove)} completed torrent(s) (no seed)"
     if skipped_protected:
         msg += f"; skipped {skipped_protected} still in *arr queue"

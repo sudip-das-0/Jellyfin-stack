@@ -26,6 +26,7 @@ from arr_common import (
     qbit_delete,
     qbit_torrents,
     read_api_key,
+    torrent_has_download_progress,
 )
 DEDUPE_VERBOSE = os.environ.get("DEDUPE_VERBOSE", "") == "1"
 STATE_PATH = STALL_RECOVERY_STATE_PATH
@@ -110,18 +111,41 @@ def dedupe_group(
     scored.sort(key=lambda x: x[0], reverse=True)
     _best_score, best_row, best_hash = scored[0]
 
+    if len(scored) > 1:
+        in_prog = sum(
+            1
+            for _, row, hn in scored
+            if torrent_has_download_progress(tmap.get(hn) if hn else None)
+        )
+        if in_prog > 1:
+            log(
+                f"{label} {media_id}: skip dedupe — {in_prog} in-progress torrent(s)",
+                detail=True,
+            )
+            return 0, 0
+
     q_removed = 0
     t_removed = 0
     remove_hashes: list[str] = []
 
     for _score, row, hn in scored[1:]:
-        if arr_queue_remove(base, api_key, row["id"]):
+        loser_t = tmap.get(hn) if hn else None
+        if torrent_has_download_progress(loser_t):
+            log(
+                f"{label} {media_id}: keep in-progress duplicate queue id={row['id']}",
+                detail=True,
+            )
+            continue
+        remove_client = not torrent_has_download_progress(loser_t)
+        if arr_queue_remove(
+            base, api_key, row["id"], remove_from_client=remove_client
+        ):
             q_removed += 1
             log(
                 f"{label} {media_id}: removed duplicate queue id={row['id']} ({row.get('title', '')[:60]})",
                 detail=True,
             )
-        if hn and hn in tmap:
+        if hn and hn in tmap and not torrent_has_download_progress(loser_t):
             remove_hashes.append(hn)
 
     if best_hash is None or best_hash not in tmap:

@@ -10,20 +10,16 @@ import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-from arr_common import MEDIA_ROOT as _MEDIA_ROOT
+from arr_common import MEDIA_ROOT as _MEDIA_ROOT, load_media_lang_policy
 
 MEDIA_ROOT = str(_MEDIA_ROOT)
-DEFAULT_MAX_GIB_PER_HOUR = 5.0
+DEFAULT_MAX_GIB_PER_HOUR = 0.0  # 0 = storage GiB/hour rule disabled
+
+
+def storage_target_enabled(max_gib_per_hour: float) -> bool:
+    return max_gib_per_hour > 0
 SKIP_SUFFIX = (".lgstream.mkv", ".lgopt.tmp.mkv")
 VIDEO_SUFFIXES = (".mkv", ".mp4", ".m2ts", ".ts")
-
-
-def _load_media_lang_policy():
-    policy = Path(__file__).resolve().parent / "media-lang-policy.py"
-    spec = importlib.util.spec_from_file_location("mlp", policy)
-    mlp = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mlp)
-    return mlp
 
 
 def library_videos(media_root: str = MEDIA_ROOT) -> list[str]:
@@ -112,9 +108,10 @@ def is_lg_friendly(
     """Match lg-tv-optimize-media.sh skip rules (already TV-ready + storage target)."""
     if not streams:
         return False
-    gib = gib_from_size(path, duration_sec)
-    if gib is not None and gib > max_gib_per_hour:
-        return False
+    if storage_target_enabled(max_gib_per_hour):
+        gib = gib_from_size(path, duration_sec)
+        if gib is not None and gib > max_gib_per_hour:
+            return False
     v = next((s for s in streams if s.get("codec_type") == "video"), None)
     audios = [s for s in streams if s.get("codec_type") == "audio"]
     subs = [s for s in streams if s.get("codec_type") == "subtitle"]
@@ -154,15 +151,16 @@ def needs_optimize(
 ) -> bool:
     if needs_mkv_container(path):
         return True
-    gib = gib_from_size(path, duration_sec)
-    if gib is not None and gib > max_gib_per_hour:
-        return True
+    if storage_target_enabled(max_gib_per_hour):
+        gib = gib_from_size(path, duration_sec)
+        if gib is not None and gib > max_gib_per_hour:
+            return True
     return not is_lg_friendly(streams, path, duration_sec, mlp, max_gib_per_hour)
 
 
 def scan_unoptimized(media_root: str = MEDIA_ROOT) -> tuple[list[str], str]:
     """Return (paths_needing_optimize, stats_line)."""
-    mlp = _load_media_lang_policy()
+    mlp = load_media_lang_policy()
     max_gib = float(os.environ.get("LG_TV_MAX_GIB_PER_HOUR", str(DEFAULT_MAX_GIB_PER_HOUR)))
     paths = library_videos(media_root)
     need: list[str] = []
@@ -241,6 +239,8 @@ def file_gib_per_hour(host_path: str) -> float | None:
 def over_gib_target(
     host_path: str, max_gib_per_hour: float = DEFAULT_MAX_GIB_PER_HOUR
 ) -> bool:
+    if not storage_target_enabled(max_gib_per_hour):
+        return False
     g = file_gib_per_hour(host_path)
     if g is None:
         return False
@@ -269,6 +269,8 @@ def main() -> int:
         print("unknown")
         return 1
     print(f"{g:.3f}")
+    if not storage_target_enabled(max_g):
+        return 0
     return 0 if g <= max_g else 3
 
 

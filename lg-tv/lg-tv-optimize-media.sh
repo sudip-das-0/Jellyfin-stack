@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Remux/transcode media for LG WebOS Jellyfin: H.264 + stereo AAC, no embedded subs.
 # Video: Intel VAAPI decode+encode first, QSV fallback, libx264 last. Target LG_TV_MAXRATE (default 15M).
-# Storage: skip when <= LG_TV_MAX_GIB_PER_HOUR (default 5 GiB/h); shrink/transcode above that.
+# Storage: skip when <= LG_TV_MAX_GIB_PER_HOUR (0 = disabled); shrink/transcode above that when enabled.
 # H.264 above target GiB/h: HW transcode when LG_TV_H264_SHRINK=1; else remux copy only when under target.
 # AV1: all HW tiers first; libx264 only when LG_TV_AV1_ALLOW_CPU=1 (after LG_TV_AV1_HW_ATTEMPTS queue failures).
 # LG_TV_SKIP_REMUX=1 (default): never replace REMUX / large lossless-audio sources (optimize.skipped).
@@ -31,6 +31,7 @@ fi
 
 # shellcheck source=stack-paths.sh
 source "$(dirname "$0")/../lib/stack-paths.sh"
+lg_tv_optimize_enabled || exit 0
 LG_TV_DRI_NODE="$LG_TV_QSV_DEVICE"
 LG_TV_DRI_DRIVER="$LG_TV_VAAPI_DRIVER"
 LOG=$LG_TV_LOG
@@ -82,8 +83,6 @@ human_bytes() {
   fi
 }
 
-TORRENTS_ROOT=/mnt/jellyfin/torrents
-
 prune_empty_torrent_dir() {
   local dir="$1"
   while [[ "$dir" == "$TORRENTS_ROOT"/* ]]; do
@@ -129,11 +128,11 @@ remove_torrent_originals() {
   done
 }
 
-# Accept Sonarr (/data/media/...) or host (/mnt/jellyfin/media/...) paths.
+# Accept Sonarr (/data/media/...) or host ($MEDIA_ROOT/...) paths.
 if [[ "$src" == /data/media/* ]]; then
-  src="/mnt/jellyfin/${src#/data/}"
+  src="${JELLYFIN_MNT}/${src#/data/}"
 fi
-rel="${src#/mnt/jellyfin/media/}"
+rel="${src#${MEDIA_ROOT}/}"
 cin="/media/$rel"
 
 if [[ -f "${MAINT_DIR}/normalize-subtitle-sidecars.py" ]]; then
@@ -163,11 +162,9 @@ audio_map_args() {
   docker exec jellyfin /usr/lib/jellyfin-ffmpeg/ffprobe -v error -i "$1" \
     -select_streams a -show_entries stream=index:stream_tags=language \
     -of csv=p=0 2>/dev/null | python3 -c "
-import importlib.util
+from arr_common import load_media_lang_policy
 import sys
-spec = importlib.util.spec_from_file_location('mlp', '${LIB_DIR}/media-lang-policy.py')
-mlp = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(mlp)
+mlp = load_media_lang_policy()
 rows = []
 for line in sys.stdin:
     line = line.strip()
@@ -215,19 +212,22 @@ media_gib_per_hour() {
     echo "N/A"
     return 0
   fi
-  awk -v b="$size" -v d="$dur" -v max="${LG_TV_MAX_GIB_PER_HOUR:-5}" \
+  awk -v b="$size" -v d="$dur" -v max="${LG_TV_MAX_GIB_PER_HOUR:-0}" \
     'BEGIN { printf "%.2f", b * 3600 / d / 1073741824 }'
 }
 
 over_storage_target() {
   local g=${1:-}
+  if [[ "${LG_TV_MAX_GIB_PER_HOUR:-0}" == "0" ]]; then
+    return 1
+  fi
   if [[ -z "$g" || "$g" == "N/A" ]]; then
     if [[ "$EFF_VBPS" != "N/A" && "$EFF_VBPS" -gt "$LG_TV_TARGET_VBITRATE_BPS" ]]; then
       return 0
     fi
     return 1
   fi
-  awk -v g="$g" -v max="${LG_TV_MAX_GIB_PER_HOUR:-5}" 'BEGIN { exit (g > max ? 0 : 1) }'
+  awk -v g="$g" -v max="${LG_TV_MAX_GIB_PER_HOUR}" 'BEGIN { exit (g > max ? 0 : 1) }'
 }
 
 vinfo=""
@@ -307,10 +307,9 @@ if [[ "$subs" != "0" ]]; then
     docker exec jellyfin /usr/lib/jellyfin-ffmpeg/ffprobe -v error "$cin" \
       -select_streams s -show_entries stream=index:stream_tags=language:stream_tags=title \
       -of json 2>/dev/null | python3 -c "
-import importlib.util, json, sys
-spec = importlib.util.spec_from_file_location('mlp', '${LIB_DIR}/media-lang-policy.py')
-mlp = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(mlp)
+import json, sys
+from arr_common import load_media_lang_policy
+mlp = load_media_lang_policy()
 data = json.load(sys.stdin)
 for idx, suf in mlp.pick_sidecar_subtitles(data.get('streams') or []):
     print(idx, suf)
@@ -706,7 +705,7 @@ elif [[ "$vcodec" == "av1" ]]; then
   fi
 elif [[ "$vcodec" == "h264" ]]; then
   if h264_needs_shrink; then
-    log "h264 HW shrink (${MEDIA_GIB} GiB/h > ${LG_TV_MAX_GIB_PER_HOUR:-5}, maxrate ${LG_TV_MAXRATE:-15M}, size=$(human_bytes "$SOURCE_SIZE")): $src"
+    log "h264 HW shrink (${MEDIA_GIB} GiB/h > ${LG_TV_MAX_GIB_PER_HOUR}, maxrate ${LG_TV_MAXRATE:-15M}, size=$(human_bytes "$SOURCE_SIZE")): $src"
     h264_to_h264_tiered || exit 1
   else
   h264_remux_ok=0
@@ -782,7 +781,7 @@ if [[ "$final_path" != "$src" ]]; then
   rm -f "$src"
   "${LGTV_SCRIPTS}/lg-tv-purge-queue-path.sh" "$src" 2>/dev/null || true
   src="$final_path"
-  rel="${src#/mnt/jellyfin/media/}"
+  rel="${src#${MEDIA_ROOT}/}"
 fi
 bytes_after=$(stat -c%s "$src" 2>/dev/null || echo 0)
 delta=$((bytes_after - bytes_before))

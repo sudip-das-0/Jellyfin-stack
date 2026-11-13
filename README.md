@@ -28,7 +28,7 @@ On this PC, `http://127.0.0.1:<port>` works too.
 | `lib/` | Shared paths and helpers (`stack-paths.sh`, `arr_common.py`) |
 | `hooks/` | Sonarr/Radarr CustomScripts (mounted as `/data/scripts`) |
 | `maintenance/` | 30‑min download pipeline (dedupe, stall, import, cleanup) |
-| `lg-tv/` | LG WebOS remux/transcode queue |
+| `lg-tv/` | LG WebOS remux/transcode queue (`lg-tv-queue-unoptimized.sh`, export/promote helpers) |
 | `jellyfin/` | DB delete-guard, episode images, webhook listener |
 | `apply/` | One-shot policy (no-seed, LAPSE, VAAPI transcode, hook registration) |
 | `temp/` | Host-only extras (gitignored): show-specific policies, blocked titles |
@@ -46,11 +46,12 @@ Check wiring: `./stack-verify.sh`
 ## After a torrent finishes
 
 1. Sonarr/Radarr **hardlink** the file into `/mnt/jellyfin/media` and **remove** it from qBittorrent (no seeding).
-2. Import hook copies matching `.srt` → `{video}.eng.srt` and queues LG optimize.
+2. Import hook copies matching `.srt` → `{video}.eng.srt` (optional LG optimize queue when `LG_TV_OPTIMIZE_ENABLED=1`).
 3. Bazarr searches for English subs if none were in the release.
 4. **LAPSE** (Jellyfin plugin) autosyncs sidecar timing on new items; bulk sync from Dashboard → LAPSE.
-5. `lg-tv-optimize` remuxes/transcodes to H.264 + stereo AAC for LG direct play (skips REMUX / large lossless).
-6. Every 30 min, `download-maintenance.sh` dedupes queues, recovers 12h stalls, imports orphans, and syncs deletes.
+5. **LG TV library pipeline** (optional): set `LG_TV_OPTIMIZE_ENABLED=1` in `scripts/.env`, enable `lg-tv-optimize.service` + `lg-tv-new-media-watch.service`. Policy toggles (`LG_TV_MAX_GIB_PER_HOUR`, `LG_TV_SKIP_REMUX`, …) live in `.env` only — see `.env.example`.
+6. **Manual REMUX → TV copy:** `lg-tv/lg-tv-export-processed.sh` (library → `~/Downloads/processed/` without touching masters), then `lg-tv-promote-processed.sh` to swap into `/mnt/jellyfin/media` (backs up to `*.lgopt-backup`). Does **not** downscale to 1080p; keeps source resolution, caps H.264 ~15 Mbps.
+7. Every 30 min, `download-maintenance.sh` dedupes queues, recovers 12h stalls, imports orphans, and syncs deletes.
 
 What rewrites the video (skipping/corruption): [`docs/from-download-to-tv.md`](docs/from-download-to-tv.md)  
 Download rules: [`docs/jellyfin-download-behaviour.md`](docs/jellyfin-download-behaviour.md)

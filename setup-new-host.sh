@@ -67,7 +67,11 @@ host_layout() {
   ln -sfn "$SCRIPTS_ROOT" "$USER_HOME/arr/scripts"
   ln -sfn "$JELLYFIN_MNT" "$USER_HOME/jellyfin-drive"
   if [[ ! -f "$SCRIPTS_ROOT/.env" ]]; then
-    printf 'ARR_CONFIG_ROOT=%s\n' "$ARR_CONFIG" >"$SCRIPTS_ROOT/.env"
+    if [[ -f "$SCRIPTS_ROOT/.env.example" ]]; then
+      sed "s|REPLACE_ME|${USER_NAME}|g" "$SCRIPTS_ROOT/.env.example" >"$SCRIPTS_ROOT/.env"
+    else
+      printf 'ARR_CONFIG_ROOT=%s\nLG_TV_OPTIMIZE_ENABLED=0\n' "$ARR_CONFIG" >"$SCRIPTS_ROOT/.env"
+    fi
   fi
   install -m 755 "$HOST_DIR/jellyfin-cli.sh" "$USER_HOME/.local/bin/jellyfin"
   grep -q '.local/bin' "$USER_HOME/.bashrc" 2>/dev/null \
@@ -87,9 +91,15 @@ install_units() {
     queue-missing-downloads.timer \
     torrent-library-dedupe.timer \
     qbit-network-profile.timer \
-    jellyfin-drive-guard.timer \
-    lg-tv-optimize.service \
-    lg-tv-new-media-watch.service
+    jellyfin-drive-guard.timer
+  # shellcheck source=lib/stack-paths.sh
+  source "$SCRIPTS_ROOT/lib/stack-paths.sh"
+  if lg_tv_optimize_enabled; then
+    systemctl --user enable --now lg-tv-optimize.service lg-tv-new-media-watch.service
+  else
+    systemctl --user disable --now lg-tv-optimize.service lg-tv-new-media-watch.service 2>/dev/null || true
+    echo "LG TV optimize disabled (LG_TV_OPTIMIZE_ENABLED=0)"
+  fi
   if [[ -f "$HOST_DIR/install-jellyfin-udev-guard.sh" ]]; then
     need_sudo "$HOST_DIR/install-jellyfin-udev-guard.sh" || true
   fi

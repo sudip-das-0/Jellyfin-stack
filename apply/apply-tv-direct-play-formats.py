@@ -2,14 +2,12 @@
 """Apply H.264 + AAC custom formats to Sonarr/Radarr HD-1080p profiles."""
 from __future__ import annotations
 
-import json
 import sys
 import urllib.error
-import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
-from arr_common import RADARR_CONFIG, RADARR_URL, SONARR_CONFIG, SONARR_URL, read_api_key
+from arr_common import RADARR_CONFIG, RADARR_URL, SONARR_CONFIG, SONARR_URL, arr_json, read_api_key
 PROFILE_NAME = "HD-1080p"
 ANIME_PROFILE_NAME = "HD-1080p Anime"
 
@@ -250,31 +248,18 @@ FORMATS = [
 ]
 
 
-def http_json(url: str, api_key: str, *, method: str = "GET", data: dict | None = None) -> object:
-    body = json.dumps(data).encode() if data is not None else None
-    req = urllib.request.Request(
-        url,
-        data=body,
-        method=method,
-        headers={"X-Api-Key": api_key, "Content-Type": "application/json"},
-    )
-    with urllib.request.urlopen(req, timeout=120) as resp:
-        raw = resp.read()
-        return json.loads(raw.decode()) if raw else None
-
-
 def ensure_formats(base_url: str, api_key: str) -> dict[str, int]:
-    existing = http_json(f"{base_url}/api/v3/customformat", api_key)
+    existing = arr_json(f"{base_url}/api/v3/customformat", api_key)
     by_name = {cf["name"]: cf["id"] for cf in existing} if isinstance(existing, list) else {}
 
     for fmt in FORMATS:
         name = fmt["name"]
         if name in by_name:
             cf_id = by_name[name]
-            http_json(f"{base_url}/api/v3/customformat/{cf_id}", api_key, method="PUT", data={**fmt, "id": cf_id})
+            arr_json(f"{base_url}/api/v3/customformat/{cf_id}", api_key, method="PUT", body={**fmt, "id": cf_id})
             print(f"{base_url}: updated custom format {name} (id={cf_id})")
             continue
-        created = http_json(f"{base_url}/api/v3/customformat", api_key, method="POST", data=fmt)
+        created = arr_json(f"{base_url}/api/v3/customformat", api_key, method="POST", body=fmt)
         by_name[name] = created["id"]
         print(f"{base_url}: created custom format {name} (id={created['id']})")
 
@@ -301,7 +286,7 @@ def _apply_profile_scores(
             raise RuntimeError(f"Template profile {clone_from!r} not found on {base_url}")
         profile = {k: v for k, v in template.items() if k != "id"}
         profile["name"] = profile_name
-        profile = http_json(f"{base_url}/api/v3/qualityprofile", api_key, method="POST", data=profile)
+        profile = arr_json(f"{base_url}/api/v3/qualityprofile", api_key, method="POST", body=profile)
         profiles.append(profile)
         print(f"{base_url}: created profile {profile_name} (id={profile['id']})")
 
@@ -312,11 +297,11 @@ def _apply_profile_scores(
     profile["minFormatScore"] = min_format_score
     profile["minUpgradeFormatScore"] = 1
 
-    http_json(
+    arr_json(
         f"{base_url}/api/v3/qualityprofile/{profile['id']}",
         api_key,
         method="PUT",
-        data=profile,
+        body=profile,
     )
     print(
         f"{base_url}: applied scores to profile {profile_name} "
@@ -326,7 +311,7 @@ def _apply_profile_scores(
 
 
 def apply_profile(base_url: str, api_key: str, name_to_id: dict[str, int]) -> None:
-    profiles = http_json(f"{base_url}/api/v3/qualityprofile", api_key)
+    profiles = arr_json(f"{base_url}/api/v3/qualityprofile", api_key)
     _apply_profile_scores(
         base_url,
         api_key,
@@ -339,7 +324,7 @@ def apply_profile(base_url: str, api_key: str, name_to_id: dict[str, int]) -> No
 
 
 def apply_anime_profile(base_url: str, api_key: str, name_to_id: dict[str, int]) -> int:
-    profiles = http_json(f"{base_url}/api/v3/qualityprofile", api_key)
+    profiles = arr_json(f"{base_url}/api/v3/qualityprofile", api_key)
     profile = _apply_profile_scores(
         base_url,
         api_key,
@@ -354,7 +339,7 @@ def apply_anime_profile(base_url: str, api_key: str, name_to_id: dict[str, int])
 
 
 def assign_sonarr_anime_quality_profile(base_url: str, api_key: str, anime_profile_id: int) -> None:
-    series_list = http_json(f"{base_url}/api/v3/series", api_key)
+    series_list = arr_json(f"{base_url}/api/v3/series", api_key)
     updated = 0
     for series in series_list:
         is_anime = series.get("seriesType") == "anime" or "/anime" in (
@@ -363,7 +348,7 @@ def assign_sonarr_anime_quality_profile(base_url: str, api_key: str, anime_profi
         if not is_anime or series.get("qualityProfileId") == anime_profile_id:
             continue
         body = {**series, "qualityProfileId": anime_profile_id}
-        http_json(f"{base_url}/api/v3/series/{series['id']}", api_key, method="PUT", data=body)
+        arr_json(f"{base_url}/api/v3/series/{series['id']}", api_key, method="PUT", body=body)
         updated += 1
     print(f"{base_url}: set {ANIME_PROFILE_NAME} on {updated} anime series")
 

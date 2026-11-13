@@ -35,20 +35,20 @@ auth=(-H "Authorization: MediaBrowser Token=\"$API_KEY\"")
 
 wait_jellyfin() {
   for _ in $(seq 1 40); do
-    curl -sf http://127.0.0.1:8096/System/Info/Public >/dev/null 2>&1 && return 0
+    curl -sf "${JELLYFIN_URL}/System/Info/Public" >/dev/null 2>&1 && return 0
     sleep 2
   done
-  echo "Jellyfin not responding on :8096" >&2
+  echo "Jellyfin not responding at ${JELLYFIN_URL}" >&2
   return 1
 }
 
-installed=$(curl -sS "${auth[@]}" http://127.0.0.1:8096/Plugins |
+installed=$(curl -sS "${auth[@]}" "${JELLYFIN_URL}/Plugins" |
   python3 -c "import json,sys; print(any(p.get('Id')=='$PLUGIN_GUID' for p in json.load(sys.stdin)))")
 
 if [[ "$installed" != True ]]; then
   echo "Installing Open Subtitles plugin $PLUGIN_VERSION..."
   curl -sS -X POST "${auth[@]}" \
-    "http://127.0.0.1:8096/Packages/Installed/Open%20Subtitles?Version=$PLUGIN_VERSION" -o /dev/null
+    "${JELLYFIN_URL}/Packages/Installed/Open%20Subtitles?Version=$PLUGIN_VERSION" -o /dev/null
   docker restart jellyfin >/dev/null
   wait_jellyfin
 fi
@@ -70,25 +70,20 @@ PY
 )
 curl -sS -X POST "${auth[@]}" -H "Content-Type: application/json" \
   -d "$body" \
-  "http://127.0.0.1:8096/Plugins/$PLUGIN_GUID/Configuration" -o /dev/null
+  "${JELLYFIN_URL}/Plugins/$PLUGIN_GUID/Configuration" -o /dev/null
 
-python3 <<'PY'
+python3 <<PY
 from pathlib import Path
 import re
 
-libs = (
-    "/mnt/jellyfin/jellyfin/config/root/default/Series/options.xml",
-    "/mnt/jellyfin/jellyfin/config/root/default/Anime/options.xml",
-    "/mnt/jellyfin/jellyfin/config/root/default/Movies/options.xml",
-    "/mnt/jellyfin/jellyfin/config/root/default/Other/options.xml",
-)
+root = Path("${JELLYFIN_CONFIG_ROOT}") / "root/default"
+libs = [root / name / "options.xml" for name in ("Series", "Anime", "Movies", "Other")]
 fetcher_block = """  <DisabledSubtitleFetchers />
   <SubtitleFetcherOrder>
     <string>Open Subtitles</string>
   </SubtitleFetcherOrder>"""
 
-for rel in libs:
-    p = Path(rel)
+for p in libs:
     text = p.read_text(encoding="utf-8")
     text = re.sub(
         r"<DisabledSubtitleFetchers\s*/>.*?<SubtitleFetcherOrder\s*/>",

@@ -185,18 +185,30 @@ fi
 need_exec "$DIR/hooks/import-sidecar-subs.sh"
 REPO_UNIT="$DIR/systemd/user/lg-tv-optimize.service"
 USER_UNIT="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/lg-tv-optimize.service"
+STACK_ENV="${SCRIPTS_ROOT}/.env"
+if [[ -f "$REPO_UNIT" ]]; then
+  grep -q 'EnvironmentFile=.*/scripts/.env' "$REPO_UNIT" \
+    && ok "lg-tv-optimize.service loads ${SCRIPTS_ROOT}/.env" \
+    || warn "lg-tv-optimize.service missing EnvironmentFile=.env"
+fi
 if [[ -f "$REPO_UNIT" && -f "$USER_UNIT" ]]; then
-  for var in LG_TV_AV1_HW_ATTEMPTS LG_TV_OPTIMIZE_MAX_RETRIES LG_TV_HW_DECODE LG_TV_AV1_QSV LG_TV_MAXRATE LG_TV_BUFSIZE LG_TV_TARGET_VBITRATE_BPS LG_TV_MAX_GIB_PER_HOUR LG_TV_SKIP_REMUX LG_TV_SKIP_LOSSLESS_AUDIO LG_TV_SKIP_LOSSLESS_MIN_BYTES; do
+  for var in LG_TV_AV1_HW_ATTEMPTS LG_TV_OPTIMIZE_MAX_RETRIES LG_TV_HW_DECODE LG_TV_AV1_QSV LG_TV_MAXRATE LG_TV_BUFSIZE LG_TV_TARGET_VBITRATE_BPS LG_TV_MAX_HEIGHT; do
     repo_val=$(grep -E "^Environment=${var}=" "$REPO_UNIT" | head -1 | cut -d= -f3- || true)
     user_val=$(grep -E "^Environment=${var}=" "$USER_UNIT" | head -1 | cut -d= -f3- || true)
     if [[ -n "$repo_val" && "$repo_val" == "$user_val" ]]; then
       ok "lg-tv-optimize.service $var=$user_val"
     elif [[ -z "$user_val" ]]; then
-      warn "lg-tv-optimize.service missing $var (run apply-qsv-transcode-policy.sh or copy repo unit)"
+      warn "lg-tv-optimize.service missing $var (cp systemd/user/*.service ~/.config/systemd/user && daemon-reload)"
     else
       warn "lg-tv-optimize.service drift: $var repo=$repo_val user=$user_val"
     fi
   done
+fi
+if lg_tv_optimize_enabled; then
+  [[ -f "$STACK_ENV" ]] && ok "LG policy file: $STACK_ENV" || warn "missing $STACK_ENV (copy .env.example)"
+  docker ps --format '{{.Names}}' 2>/dev/null | grep -qx jellyfin \
+    && ok "jellyfin container up (required for LG encode)" \
+    || warn "jellyfin not running — LG queue will stall"
 fi
 STALL_UNIT="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/torrent-stall-recovery.service"
 if [[ -f "$STALL_UNIT" ]] && grep -q "STALL_SECONDS=${STALL_SECONDS_DEFAULT}" "$STALL_UNIT" 2>/dev/null; then
@@ -204,10 +216,19 @@ if [[ -f "$STALL_UNIT" ]] && grep -q "STALL_SECONDS=${STALL_SECONDS_DEFAULT}" "$
 else
   warn "torrent-stall-recovery.service missing STALL_SECONDS=${STALL_SECONDS_DEFAULT} (sync from systemd/user/)"
 fi
-for unit in media-stack.service lg-tv-optimize.service lg-tv-new-media-watch.service torrent-stall-recovery.timer download-activity-log.timer qbit-network-profile.timer jellyfin-drive-guard.timer; do
+for unit in media-stack.service torrent-stall-recovery.timer download-activity-log.timer qbit-network-profile.timer jellyfin-drive-guard.timer; do
   systemctl --user is-enabled "$unit" &>/dev/null && ok "enabled $unit" || warn "not enabled: $unit"
 done
-systemctl --user is-active lg-tv-optimize.service &>/dev/null && ok "lg-tv-optimize.service running" || warn "lg-tv-optimize.service not active"
+if lg_tv_optimize_enabled; then
+  for unit in lg-tv-optimize.service lg-tv-new-media-watch.service; do
+    systemctl --user is-enabled "$unit" &>/dev/null && ok "enabled $unit" || warn "not enabled: $unit"
+  done
+  systemctl --user is-active lg-tv-optimize.service &>/dev/null && ok "lg-tv-optimize.service running" || warn "lg-tv-optimize.service not active"
+else
+  ok "LG_TV_OPTIMIZE_ENABLED=0 (lg-tv units should stay disabled)"
+  systemctl --user is-active lg-tv-optimize.service &>/dev/null && warn "lg-tv-optimize.service still active — disable it"
+  systemctl --user is-enabled lg-tv-optimize.service &>/dev/null && warn "lg-tv-optimize.service still enabled — run: systemctl --user disable --now lg-tv-optimize lg-tv-new-media-watch"
+fi
 if systemctl --user is-enabled lg-tv-optimize.timer &>/dev/null; then
   warn "lg-tv-optimize.timer should be disabled (continuous worker replaces it)"
 fi

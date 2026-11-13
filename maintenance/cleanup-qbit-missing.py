@@ -6,11 +6,10 @@ import os
 import sys
 import time
 import urllib.error
-import urllib.parse
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
-from arr_common import append_recovery_log, qbit_json
+from arr_common import append_recovery_log, qbit_delete, qbit_json
 
 VERBOSE = os.environ.get("QBIT_CLEANUP_VERBOSE", "") == "1"
 # Magnets stuck in metaDL with no metadata block all active download slots.
@@ -56,8 +55,7 @@ def main() -> int:
     if not remove:
         return 0
 
-    body = urllib.parse.urlencode({"hashes": "|".join(remove), "deleteFiles": "true"}).encode()
-    qbit_json("/api/v2/torrents/delete", method="POST", data=body)
+    qbit_delete(remove, delete_files=True)
     append_recovery_log(f"removed {len(remove)} dead/missing torrent(s)", tag="qbit")
     return 0
 

@@ -5,6 +5,9 @@ Wants=network-online.target
 
 [Service]
 Type=simple
+# Policy (LG_TV_OPTIMIZE_ENABLED, SKIP_REMUX, MAX_GIB_PER_HOUR, …) lives in .env.
+EnvironmentFile=-/mnt/jellyfin/scripts/.env
+# Host GPU + H.264 output profile (does not downscale resolution; LG_TV_MAX_HEIGHT=0 = allow 4K).
 Environment=LG_TV_MAX_HEIGHT=0
 Environment=LG_TV_HW_DECODE=1
 Environment=LG_TV_AV1_QSV=1
@@ -15,10 +18,7 @@ Environment=LG_TV_OPTIMIZE_MAX_RETRIES=4
 Environment=LG_TV_MAXRATE=15M
 Environment=LG_TV_BUFSIZE=30M
 Environment=LG_TV_TARGET_VBITRATE_BPS=15000000
-Environment=LG_TV_MAX_GIB_PER_HOUR=5
 Environment=LG_TV_H264_SHRINK=1
-Environment=LG_TV_SKIP_REMUX=1
-Environment=LG_TV_SKIP_LOSSLESS_AUDIO=1
 Environment=LG_TV_SKIP_LOSSLESS_MIN_BYTES=8589934592
 ExecStart=/mnt/jellyfin/scripts/lg-tv/lg-tv-optimize-daemon.sh
 Restart=always

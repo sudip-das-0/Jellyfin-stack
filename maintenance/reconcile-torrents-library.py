@@ -65,10 +65,11 @@ def post_import_hooks(media_path: Path) -> None:
     if sidecar.is_file():
         subprocess.run([str(sidecar)], env=env, check=False)
     queue_lg_optimize(media_path)
-    subprocess.run(
-        ["systemctl", "--user", "start", "--no-block", "lg-tv-optimize.service"],
-        check=False,
-    )
+    if os.environ.get("LG_TV_OPTIMIZE_ENABLED", "0") == "1":
+        subprocess.run(
+            ["systemctl", "--user", "start", "--no-block", "lg-tv-optimize.service"],
+            check=False,
+        )
 
 
 def try_import_file(

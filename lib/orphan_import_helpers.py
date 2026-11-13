@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -225,6 +226,8 @@ def import_orphan_into_library(
 
 
 def queue_lg_optimize(host_media_path: Path) -> None:
+    if os.environ.get("LG_TV_OPTIMIZE_ENABLED", "0") != "1":
+        return
     script = SCRIPTS_ROOT / "hooks/lg-tv-queue-path.sh"
     if not script.is_file() or not host_media_path.is_file():
         return

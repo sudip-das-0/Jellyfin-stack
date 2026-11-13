@@ -3,6 +3,7 @@
 set -euo pipefail
 # shellcheck source=stack-paths.sh
 source "$(dirname "$0")/../lib/stack-paths.sh"
+lg_tv_optimize_enabled || exit 0
 MEDIA=$MEDIA_ROOT
 QUEUE_HELPER="${HOOKS_DIR}/lg-tv-queue-path.sh"
 BASELINE=$LG_TV_WATCHER_BASELINE

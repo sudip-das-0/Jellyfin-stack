@@ -17,7 +17,7 @@ from zoneinfo import ZoneInfo
 
 TZ = ZoneInfo("Asia/Kolkata")
 CONFIG_ROOT = Path(os.environ.get("CONFIG_ROOT", os.path.expanduser("~/arr")))
-SCRIPTS_ROOT = Path("/mnt/jellyfin/scripts")
+SCRIPTS_ROOT = Path(os.environ.get("SCRIPTS_ROOT", str(Path(__file__).resolve().parent.parent)))
 LIB_DIR = SCRIPTS_ROOT / "lib"
 HOOKS_DIR = SCRIPTS_ROOT / "hooks"
 HOST_DIR = SCRIPTS_ROOT / "host"
@@ -31,6 +31,7 @@ TORRENTS_ROOT = JELLYFIN_MNT / "torrents"
 JELLYFIN_CONFIG_ROOT = JELLYFIN_MNT / "jellyfin" / "config"
 JELLYFIN_DB = JELLYFIN_CONFIG_ROOT / "data" / "jellyfin.db"
 JELLYFIN_URL = os.environ.get("JELLYFIN_URL", "http://127.0.0.1:8096")
+BAZARR_URL = os.environ.get("BAZARR_URL", "http://127.0.0.1:6767")
 LOG_ROOT = JELLYFIN_MNT / "logs"
 STALL_SECONDS_DEFAULT = int(os.environ.get("STALL_SECONDS_DEFAULT", "43200"))
 STALL_LOG_DIR = LOG_ROOT / "stall-recovery"
@@ -48,6 +49,24 @@ BAZARR_DB = ARR_ROOT / "config/bazarr/db/bazarr.db"
 SONARR_URL = os.environ.get("SONARR_URL", "http://127.0.0.1:8989")
 RADARR_URL = os.environ.get("RADARR_URL", "http://127.0.0.1:7878")
 QBIT_URL = os.environ.get("QBIT_URL", "http://127.0.0.1:8080")
+
+_MEDIA_LANG_POLICY = None
+
+
+def load_media_lang_policy():
+    """Load lib/media-lang-policy.py (hyphenated filename, not a package)."""
+    global _MEDIA_LANG_POLICY
+    if _MEDIA_LANG_POLICY is None:
+        import importlib.util
+
+        path = Path(__file__).resolve().parent / "media-lang-policy.py"
+        spec = importlib.util.spec_from_file_location("media_lang_policy", path)
+        if spec is None or spec.loader is None:
+            raise RuntimeError(f"Cannot load {path}")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        _MEDIA_LANG_POLICY = mod
+    return _MEDIA_LANG_POLICY
 
 
 def read_api_key(path: Path | None = None) -> str:
@@ -93,6 +112,67 @@ def norm_qbit_hash(h: str) -> str:
 def holds_active_qbit_download_slot(t: dict) -> bool:
     """True when torrent holds one of qBit's max-active-download slots (not queued/waiting)."""
     return (t.get("state") or "") in QBIT_ACTIVE_DOWNLOAD_STATES
+
+
+def torrent_has_download_progress(t: dict | None) -> bool:
+    """Do not remove from qBit / Sonarr queue when a grab still has data in flight."""
+    if not t:
+        return False
+    prog = float(t.get("progress") or 0)
+    if prog >= 0.999:
+        return False
+    min_prog = float(os.environ.get("DEDUPE_PROTECT_PROGRESS", "0.001"))
+    if prog > min_prog:
+        return True
+    if int(t.get("dlspeed") or 0) > 0:
+        return True
+    state = t.get("state") or ""
+    if state in QBIT_ACTIVE_DOWNLOAD_STATES:
+        return True
+    if state in ("stalledDL", "queuedDL", "checkingDL") and prog > 0:
+        return True
+    return False
+
+
+def _queue_row_has_active_download(row: dict, tmap: dict[str, dict]) -> bool:
+    did = row.get("downloadId")
+    if did:
+        if torrent_has_download_progress(tmap.get(norm_qbit_hash(did))):
+            return True
+    st = (row.get("status") or "").lower()
+    tracked = (row.get("trackedDownloadStatus") or "").lower()
+    if st in ("downloading", "queued", "warning") or tracked in ("downloading", "ok"):
+        # Row is tied to a client job even if qBit API is briefly unavailable.
+        if did:
+            return True
+    return False
+
+
+def episode_ids_with_active_downloads(api_key: str, tmap: dict[str, dict] | None = None) -> set[int]:
+    """Episode IDs that already have a Sonarr queue row with an in-progress torrent."""
+    if tmap is None:
+        tmap = {norm_qbit_hash(t["hash"]): t for t in qbit_torrents()}
+    active: set[int] = set()
+    for row in fetch_arr_queue(SONARR_URL, api_key):
+        eid = row.get("episodeId")
+        if eid is None:
+            continue
+        if _queue_row_has_active_download(row, tmap):
+            active.add(int(eid))
+    return active
+
+
+def movie_ids_with_active_downloads(api_key: str, tmap: dict[str, dict] | None = None) -> set[int]:
+    if tmap is None:
+        tmap = {norm_qbit_hash(t["hash"]): t for t in qbit_torrents()}
+    active: set[int] = set()
+    for row in fetch_arr_queue(RADARR_URL, api_key):
+        mid = row.get("movieId")
+        if mid is None:
+            continue
+        if _queue_row_has_active_download(row, tmap):
+            active.add(int(mid))
+    return active
 
 
 def wanted_missing_count(base_url: str, api_key: str) -> int:

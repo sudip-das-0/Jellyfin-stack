@@ -1,17 +1,13 @@
 """Pick episode-correct English subtitles from Sonarr/Radarr release folders."""
 from __future__ import annotations
 
-import importlib.util
 import re
 import shutil
 from pathlib import Path
 
-_SCRIPT_DIR = Path(__file__).resolve().parent
-_POLICY_PATH = _SCRIPT_DIR / "media-lang-policy.py"
-_spec = importlib.util.spec_from_file_location("mlp", _POLICY_PATH)
-mlp = importlib.util.module_from_spec(_spec)
-assert _spec.loader
-_spec.loader.exec_module(mlp)
+from arr_common import load_media_lang_policy
+
+mlp = load_media_lang_policy()
 
 _EPISODE = re.compile(
     r"(?i)(?<![0-9])s(\d{1,2})e(\d{1,2})(?![0-9])",

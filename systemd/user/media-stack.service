@@ -10,9 +10,12 @@ ConditionPathIsMountPoint=/mnt/jellyfin
 Type=oneshot
 RemainAfterExit=yes
 WorkingDirectory=/mnt/jellyfin/scripts
+EnvironmentFile=-/mnt/jellyfin/scripts/.env
 ExecStartPre=/mnt/jellyfin/scripts/host/ensure-jellyfin-media-mount.sh
-ExecStart=/usr/bin/docker compose up -d
-ExecStop=/usr/bin/docker compose stop
+# Lingered user session may start before dockerd; wait up to ~3 minutes.
+ExecStartPre=/bin/bash -c 'for i in $(seq 1 90); do /usr/bin/docker info &>/dev/null && exit 0; /usr/bin/sudo -n /usr/bin/docker info &>/dev/null && exit 0; sleep 2; done; echo "media-stack: docker not ready" >&2; exit 1'
+ExecStart=/bin/bash -c 'cd /mnt/jellyfin/scripts && /usr/bin/docker compose --env-file .env -f docker-compose.yml up -d || /usr/bin/sudo -n /usr/bin/docker compose --env-file .env -f docker-compose.yml up -d'
+ExecStop=/bin/bash -c 'cd /mnt/jellyfin/scripts && /usr/bin/docker compose --env-file .env -f docker-compose.yml stop || /usr/bin/sudo -n /usr/bin/docker compose --env-file .env -f docker-compose.yml stop'
 TimeoutStartSec=300
 
 [Install]

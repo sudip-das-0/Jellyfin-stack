@@ -11,6 +11,15 @@ LOG_ROOT="${JELLYFIN_MNT}/logs"
 STALL_LOG_DIR="${LOG_ROOT}/stall-recovery"
 LG_TV_DIR="${LOG_ROOT}/lg-tv"
 SCRIPTS_ROOT="${SCRIPTS_ROOT:-/mnt/jellyfin/scripts}"
+# Host policy (ARR paths, LG_TV_* toggles). systemd units use the same file via EnvironmentFile=.
+_STACK_ENV="${SCRIPTS_ROOT}/.env"
+if [[ -f "$_STACK_ENV" ]]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "$_STACK_ENV"
+  set +a
+fi
+unset _STACK_ENV
 LIB_DIR="${SCRIPTS_ROOT}/lib"
 APPLY_DIR="${SCRIPTS_ROOT}/apply"
 LGTV_SCRIPTS="${SCRIPTS_ROOT}/lg-tv"
@@ -25,11 +34,19 @@ SONARR_CONFIG="${CONFIG_ROOT}/config/sonarr/config.xml"
 RADARR_CONFIG="${CONFIG_ROOT}/config/radarr/config.xml"
 BAZARR_CONFIG="${CONFIG_ROOT}/config/bazarr/config/config.yaml"
 BAZARR_DB="${CONFIG_ROOT}/config/bazarr/db/bazarr.db"
+# Prefer ARR_CONFIG_ROOT from .env (docker-compose) for *arr config.xml paths.
+if [[ -n "${ARR_CONFIG_ROOT:-}" ]]; then
+  SONARR_CONFIG="${ARR_CONFIG_ROOT}/sonarr/config.xml"
+  RADARR_CONFIG="${ARR_CONFIG_ROOT}/radarr/config.xml"
+  BAZARR_CONFIG="${ARR_CONFIG_ROOT}/bazarr/config/config.yaml"
+  BAZARR_DB="${ARR_CONFIG_ROOT}/bazarr/db/bazarr.db"
+fi
 QBIT_USER="${QBIT_USER:-Dimpu}"
 QBIT_PASS="${QBIT_PASS:-adminadmin}"
 SONARR_URL="${SONARR_URL:-http://127.0.0.1:8989}"
 RADARR_URL="${RADARR_URL:-http://127.0.0.1:7878}"
 QBIT_URL="${QBIT_URL:-http://127.0.0.1:8080}"
+BAZARR_URL="${BAZARR_URL:-http://127.0.0.1:6767}"
 STALL_SECONDS_DEFAULT="${STALL_SECONDS_DEFAULT:-43200}"
 
 read_arr_api_key() {
@@ -47,6 +64,22 @@ LG_TV_LOG="${STALL_LOG_DIR}/lg-tv-optimize.log"
 LG_TV_WATCHER_BASELINE="${LG_TV_DIR}/watcher.baseline"
 LG_TV_SKIPPED="${LG_TV_DIR}/optimize.skipped"
 
+# Master switch: 1 = remux/transcode library for LG direct-play; 0 = no queue, no encodes.
+export LG_TV_OPTIMIZE_ENABLED="${LG_TV_OPTIMIZE_ENABLED:-0}"
+
+lg_tv_optimize_enabled() {
+  [[ "${LG_TV_OPTIMIZE_ENABLED}" == "1" ]]
+}
+
+# lg-tv-optimize-media.sh runs ffmpeg inside the Jellyfin container.
+lg_tv_ensure_jellyfin() {
+  if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx jellyfin; then
+    return 0
+  fi
+  docker start jellyfin >/dev/null 2>&1 || return 1
+  sleep 2
+}
+
 # Library videos for LG optimize (movies/series/anime); .m2ts/.ts remux to .mkv in optimize script.
 lg_tv_find_videos() {
   find "${1:?}" -type f \( -iname '*.mkv' -o -iname '*.mp4' -o -iname '*.m2ts' -o -iname '*.ts' \)
@@ -63,8 +96,8 @@ export LG_TV_AV1_HW_ATTEMPTS="${LG_TV_AV1_HW_ATTEMPTS:-3}"
 export LG_TV_MAXRATE="${LG_TV_MAXRATE:-15M}"
 export LG_TV_BUFSIZE="${LG_TV_BUFSIZE:-30M}"
 export LG_TV_TARGET_VBITRATE_BPS="${LG_TV_TARGET_VBITRATE_BPS:-15000000}"
-# Skip optimize when file is LG-friendly and at/below this storage rate (GiB per hour of runtime).
-export LG_TV_MAX_GIB_PER_HOUR="${LG_TV_MAX_GIB_PER_HOUR:-5}"
+# Skip optimize when LG-friendly and at/below this GiB/hour rate; 0 = disable storage target.
+export LG_TV_MAX_GIB_PER_HOUR="${LG_TV_MAX_GIB_PER_HOUR:-0}"
 # H.264 above LG_TV_MAX_GIB_PER_HOUR uses HW transcode (not -c:v copy) when LG_TV_H264_SHRINK=1.
 export LG_TV_H264_SHRINK="${LG_TV_H264_SHRINK:-1}"
 # Never fall back to libx264 (CPU) unless explicitly enabled (QSV/VAAPI only by default).

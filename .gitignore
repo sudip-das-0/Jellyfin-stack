@@ -28,3 +28,4 @@ scripts/
 
 # Host-only extras (show-specific policies, blocked titles, one-off scripts)
 temp/
+host/*.recover-stamp

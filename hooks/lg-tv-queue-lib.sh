@@ -12,6 +12,7 @@ lg_tv_queue_is_duplicate() {
 lg_tv_enqueue_path() {
   local path=$1 dry=${2:-0}
   local helper="${HOOKS_DIR}/lg-tv-queue-path.sh"
+  lg_tv_optimize_enabled || return 0
   [[ -n "$path" ]] || return 1
   if lg_tv_queue_is_duplicate "$path"; then
     return 2
@@ -25,6 +26,7 @@ lg_tv_enqueue_path() {
 
 lg_tv_maybe_start_worker() {
   local queued=$1 dry=${2:-0}
+  lg_tv_optimize_enabled || return 0
   if [[ "$dry" -eq 0 && "$queued" -gt 0 ]]; then
     systemctl --user start --no-block lg-tv-optimize.service 2>/dev/null || true
   fi

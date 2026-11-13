@@ -480,14 +480,30 @@ def purge_qbit_for_items(
     return len(hashes)
 
 
-def prune_failed_queue(son_key: str, rad_key: str, affected_series: set[int]) -> None:
+def prune_failed_queue(
+    son_key: str,
+    rad_key: str,
+    *,
+    episode_ids: list[int] | None = None,
+    movie_ids: list[int] | None = None,
+) -> None:
+    """Drop queue rows only for episodes/movies actually unmonitored — not the whole series."""
+    ep_set = {int(x) for x in (episode_ids or [])}
+    mov_set = {int(x) for x in (movie_ids or [])}
     removed = 0
     for base, key, is_tv in [(SONARR_URL, son_key, True), (RADARR_URL, rad_key, False)]:
         for item in fetch_arr_queue(base, key):
-            sid = item.get("seriesId") if is_tv else None
-            if is_tv and sid in affected_series:
-                if arr_queue_remove(base, key, item["id"], blocklist=True):
-                    removed += 1
+            if is_tv and ep_set:
+                eid = item.get("episodeId")
+                if eid is not None and int(eid) in ep_set:
+                    if arr_queue_remove(base, key, item["id"], blocklist=True):
+                        removed += 1
+                    continue
+            if not is_tv and mov_set:
+                mid = item.get("movieId")
+                if mid is not None and int(mid) in mov_set:
+                    if arr_queue_remove(base, key, item["id"], blocklist=True):
+                        removed += 1
                     continue
             err = (item.get("errorMessage") or "").lower()
             if "missing" in err or item.get("trackedDownloadStatus") in (
@@ -502,24 +518,23 @@ def prune_failed_queue(son_key: str, rad_key: str, affected_series: set[int]) ->
 def finish_sync(
     son_key: str,
     rad_key: str,
-    affected: set[int],
     ep_ids: list[int],
     movie_ids: list[int],
 ) -> None:
-    prune_failed_queue(son_key, rad_key, affected)
+    prune_failed_queue(son_key, rad_key, episode_ids=ep_ids, movie_ids=movie_ids)
     purge_qbit_for_items(son_key, rad_key, ep_ids, movie_ids)
 
 
 def run_full_sync(son_key: str, rad_key: str) -> None:
-    _, affected, ep_ids = sonarr_unmonitor_deleted(son_key)
+    _, _, ep_ids = sonarr_unmonitor_deleted(son_key)
     _, movie_ids = radarr_unmonitor_deleted(rad_key)
-    finish_sync(son_key, rad_key, affected, ep_ids, movie_ids)
+    finish_sync(son_key, rad_key, ep_ids, movie_ids)
 
 
 def run_path_sync(son_key: str, rad_key: str, media_paths: list[Path]) -> None:
-    _, affected, ep_ids = sonarr_unmonitor_for_paths(son_key, media_paths)
+    _, _, ep_ids = sonarr_unmonitor_for_paths(son_key, media_paths)
     _, movie_ids = radarr_unmonitor_for_paths(rad_key, media_paths)
-    finish_sync(son_key, rad_key, affected, ep_ids, movie_ids)
+    finish_sync(son_key, rad_key, ep_ids, movie_ids)
 
 
 def drain_delete_queue() -> list[str]:

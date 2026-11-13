@@ -5,7 +5,7 @@ Run via: ``cleanup-partial-series.py --torrent-library [--dry-run]`` (not on the
 
 Safe rules:
 - Never touch /mnt/jellyfin/torrents/incomplete
-- Skip in-progress qBittorrent jobs unless Sonarr/Radarr already has the episode/movie on disk
+- Never delete files under active qBittorrent jobs (even when the episode already exists in the library)
 - Delete torrent-side hardlinks when the same inode exists under media/
 - Delete orphan (nlink=1) downloads matched via Sonarr/Radarr scene names or SxxExx + library paths
 """
@@ -439,11 +439,11 @@ def main() -> int:
                 sonarr_key=sonarr_key,
                 cache=sonarr_cache,
             )
-            if dup:
-                to_delete.append((p, hardlink))
-                continue
             if is_protected(p, protected):
                 skipped_protected += 1
+                continue
+            if dup:
+                to_delete.append((p, hardlink))
                 continue
             skipped_nomatch += 1
 

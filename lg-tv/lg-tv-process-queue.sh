@@ -3,6 +3,8 @@
 set -euo pipefail
 # shellcheck source=stack-paths.sh
 source "$(dirname "$0")/../lib/stack-paths.sh"
+lg_tv_optimize_enabled || exit 0
+lg_tv_ensure_jellyfin || exit 1
 QUEUE=$LG_TV_QUEUE
 LOCK=$LG_TV_LOCK
 RETRIES=$LG_TV_RETRIES

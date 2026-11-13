@@ -2,6 +2,8 @@
 # Queue a media file for LG TV optimize (host or Sonarr/Radarr container).
 set -euo pipefail
 
+[[ "${LG_TV_OPTIMIZE_ENABLED:-0}" == "1" ]] || exit 0
+
 raw="${1:-${sonarr_episodefile_path:-${radarr_moviefile_path:-}}}"
 [[ -n "$raw" ]] || exit 0
 
