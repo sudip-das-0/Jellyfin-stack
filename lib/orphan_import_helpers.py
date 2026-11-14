@@ -170,35 +170,6 @@ def resolve_episode_from_filename(name: str, api_key: str, cache: dict) -> dict 
     return None
 
 
-def import_friendly_staging_path(host_file: Path, api_key: str, cache: dict) -> Path | None:
-    ep = resolve_episode_from_filename(host_file.name, api_key, cache)
-    if not ep or ep.get("hasFile"):
-        return None
-
-    sn = int(ep.get("seasonNumber") or 0)
-    en = int(ep.get("episodeNumber") or 0)
-    show = series_by_id(ep.get("seriesId"), api_key, cache)
-    show_title = (show or {}).get("title") or "Show"
-
-    parsed = sonarr_parse(host_file.name, api_key)
-    needs_stage = bool(
-        ABS_FANSUB.search(host_file.name)
-        or ABS_PADDED_SEASON.search(host_file.name)
-        or (parsed and not (parsed.get("episodeNumbers") or []))
-    )
-    if not needs_stage:
-        return None
-
-    STAGING.mkdir(parents=True, exist_ok=True)
-    safe_show = re.sub(r"[^\w\s-]", "", show_title).strip().replace(" ", ".")
-    staged_name = f"{safe_show}.S{sn:02d}E{en:02d}{host_file.suffix}"
-    staged = STAGING / staged_name
-    if staged.exists() or staged.is_symlink():
-        staged.unlink(missing_ok=True)
-    staged.symlink_to(host_file.resolve())
-    return staged
-
-
 def import_orphan_into_library(
     host_file: Path, api_key: str, cache: dict, *, move: bool = True
 ) -> Path | None:
@@ -283,10 +254,3 @@ def media_path_from_episode(ep: dict, api_key: str) -> Path | None:
         return None
     raw = files[0].get("path") or ""
     return host_media_path(raw)
-
-
-def refresh_episode(episode_id: int, api_key: str) -> dict | None:
-    try:
-        return arr_json(f"{SONARR_URL}/api/v3/episode/{episode_id}", api_key)
-    except Exception:
-        return None

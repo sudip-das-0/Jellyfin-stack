@@ -192,14 +192,6 @@ def purge_baseitems(conn: sqlite3.Connection, item_ids: Iterable[str]) -> int:
     return cur.rowcount
 
 
-def item_exists(conn: sqlite3.Connection, item_id: str) -> bool:
-    row = conn.execute(
-        'SELECT 1 FROM "BaseItems" WHERE "Id" = ? LIMIT 1',
-        (item_id.upper(),),
-    ).fetchone()
-    return row is not None
-
-
 def lookup_ids_by_path(conn: sqlite3.Connection, raw_path: str) -> list[str]:
     """Resolve Jellyfin BaseItems ids for a container or host media path."""
     raw = (raw_path or "").strip()

@@ -11,4 +11,3 @@ systemctl --user enable --now torrent-stall-recovery.timer download-activity-log
 systemctl --user enable --now lg-tv-optimize.service lg-tv-new-media-watch.service
 ```
 
-`lg-tv-optimize.timer` is optional if you use the continuous `lg-tv-optimize.service` worker only.

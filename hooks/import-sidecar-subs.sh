@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Copy episode-matched English subs from the release folder to {video}.eng.srt
-# (Sonarr/Radarr containers have no Python — logic lives here; see sidecar_release.py on the host.)
+# (Sonarr/Radarr containers have no Python — logic lives here.)
 set -euo pipefail
 
 dest="${sonarr_episodefile_path:-${radarr_moviefile_path:-}}"

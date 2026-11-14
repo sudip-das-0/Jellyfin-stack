@@ -180,19 +180,6 @@ def episode_ids_with_active_downloads(api_key: str, tmap: dict[str, dict] | None
     return active
 
 
-def movie_ids_with_active_downloads(api_key: str, tmap: dict[str, dict] | None = None) -> set[int]:
-    if tmap is None:
-        tmap = {norm_qbit_hash(t["hash"]): t for t in qbit_torrents()}
-    active: set[int] = set()
-    for row in fetch_arr_queue(RADARR_URL, api_key):
-        mid = row.get("movieId")
-        if mid is None:
-            continue
-        if _queue_row_has_active_download(row, tmap):
-            active.add(int(mid))
-    return active
-
-
 def wanted_missing_count(base_url: str, api_key: str) -> int:
     q = arr_json(f"{base_url}/api/v3/wanted/missing?pageSize=1", api_key)
     if isinstance(q, dict):
@@ -618,4 +605,3 @@ def video_container_magic_ok(path: Path) -> bool:
     if ext in {".mp4", ".m4v"}:
         return len(head) >= 8 and head[4:8] == b"ftyp"
     return True
-

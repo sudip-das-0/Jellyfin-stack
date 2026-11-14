@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import re
-import shutil
 from pathlib import Path
 
 from arr_common import load_media_lang_policy
@@ -90,64 +89,6 @@ def score_release_candidate(video_stem: str, video_ep: str | None, srt: Path) ->
     if mlp.subtitle_title_is_avoid(name):
         score += 25
     return score
-
-
-def iter_release_srts(root: Path):
-    if not root.is_dir():
-        return
-    seen: set[Path] = set()
-    patterns = (
-        "*.srt",
-        "*/*.srt",
-        "Subs/*.srt",
-        "Subs/*/*.srt",
-    )
-    for pattern in patterns:
-        for path in root.glob(pattern):
-            if path.is_file():
-                resolved = path.resolve()
-                if resolved not in seen:
-                    seen.add(resolved)
-                    yield path
-
-
-def find_best_release_sidecar(video_path: Path, search_dirs: list[Path]) -> Path | None:
-    video_path = Path(video_path)
-    video_stem = video_path.stem
-    video_ep = episode_code_label(video_stem)
-
-    best: tuple[int, str, Path] | None = None
-    for folder in search_dirs:
-        if not folder:
-            continue
-        folder = Path(folder)
-        for subdir in (folder, folder / "Subs"):
-            for srt in iter_release_srts(subdir):
-                score = score_release_candidate(video_stem, video_ep, srt)
-                if score is None:
-                    continue
-                key = (score, srt.name.lower(), srt)
-                if best is None or key < best:
-                    best = key
-    return best[2] if best else None
-
-
-def import_sidecar_for_video(
-    video_path: Path,
-    search_dirs: list[Path],
-    *,
-    overwrite: bool = False,
-) -> Path | None:
-    video_path = Path(video_path)
-    dest = mlp.canonical_sidecar_path(video_path)
-    if dest.is_file() and not overwrite:
-        return None
-    source = find_best_release_sidecar(video_path, search_dirs)
-    if not source:
-        return None
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(source, dest)
-    return dest
 
 
 def find_torrent_sidecar_for_video(

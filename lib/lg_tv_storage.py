@@ -234,17 +234,6 @@ def file_gib_per_hour(host_path: str) -> float | None:
     return gib_per_hour(size, dur)
 
 
-def over_gib_target(
-    host_path: str, max_gib_per_hour: float = DEFAULT_MAX_GIB_PER_HOUR
-) -> bool:
-    if not storage_target_enabled(max_gib_per_hour):
-        return False
-    g = file_gib_per_hour(host_path)
-    if g is None:
-        return False
-    return g > max_gib_per_hour
-
-
 def main() -> int:
     if len(sys.argv) >= 2 and sys.argv[1] in {"--scan-unoptimized", "--scan"}:
         media_root = sys.argv[2] if len(sys.argv) > 2 else MEDIA_ROOT
