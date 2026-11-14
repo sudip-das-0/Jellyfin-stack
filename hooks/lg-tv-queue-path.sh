@@ -11,6 +11,7 @@ raw="${1:-${sonarr_episodefile_path:-${radarr_moviefile_path:-}}}"
 
 path=$(hook_host_path "$raw")
 hook_is_video_path "$path" || exit 0
+lg_tv_is_optimizable_video "$path" || exit 0
 [[ -f "$raw" || -f "$path" ]] || exit 0
 
 LG_DIR="$(hook_log_root)/lg-tv"

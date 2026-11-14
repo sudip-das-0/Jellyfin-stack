@@ -127,6 +127,8 @@ lg_tv_normalize_stream() {
   awk -v mnt="${JELLYFIN_MNT:-/mnt/jellyfin}" '
     NF {
       if (index($0, "/data/media/") == 1) $0 = mnt "/media/" substr($0, 13)
+      low = tolower($0)
+      if (index(low, ".lgopt.tmp") || index(low, ".lgstream") || index(low, ".lgopt-backup")) next
       if (!seen[$0]++) print
     }'
 }

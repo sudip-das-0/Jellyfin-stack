@@ -92,6 +92,10 @@ process_one() {
   queue_filter "$QUEUE" lg_tv_normalize_stream || true
   path=$(queue_pop_front "$QUEUE")
   [[ -n "$path" ]] || return 1
+  if ! lg_tv_is_optimizable_video "$path"; then
+  log "drop invalid queue path (encode temp or backup): $path"
+    return 0
+  fi
   CURRENT_PATH=$path
 
   prior_failures=$(retry_count "$path")

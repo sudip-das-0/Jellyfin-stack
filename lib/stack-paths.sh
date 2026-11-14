@@ -90,9 +90,20 @@ lg_tv_ensure_jellyfin() {
   sleep 2
 }
 
+# False for encode temps/backups beside masters (must never enter optimize.queue).
+lg_tv_is_optimizable_video() {
+  local p=${1,,}
+  [[ "$p" == *".lgopt.tmp"* || "$p" == *".lgstream"* || "$p" == *".lgopt-backup"* ]] && return 1
+  case "$p" in
+    *.mkv|*.mp4|*.m2ts|*.ts) return 0 ;;
+  esac
+  return 1
+}
+
 # Library videos for LG optimize (movies/series/anime); .m2ts/.ts remux to .mkv in optimize script.
 lg_tv_find_videos() {
-  find "${1:?}" -type f \( -iname '*.mkv' -o -iname '*.mp4' -o -iname '*.m2ts' -o -iname '*.ts' \)
+  find "${1:?}" -type f \( -iname '*.mkv' -o -iname '*.mp4' -o -iname '*.m2ts' -o -iname '*.ts' \) \
+    ! -iname '*lgopt.tmp*' ! -iname '*lgstream*' ! -iname '*.lgopt-backup'
 }
 
 # Intel QSV / VAAPI defaults for batch transcode (Jellyfin container ffmpeg).

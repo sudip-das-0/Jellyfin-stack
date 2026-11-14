@@ -17,6 +17,7 @@ fi
 
 queue_if_new() {
   local file=$1
+  lg_tv_is_optimizable_video "$file" || return 0
   # queue_append_unique fails when the file is already in the baseline.
   queue_append_unique "$BASELINE" "$file" || return 0
   "$QUEUE_HELPER" "$file"
