@@ -4,7 +4,7 @@
 # Storage: skip when <= LG_TV_MAX_GIB_PER_HOUR (0 = disabled); shrink/transcode above that when enabled.
 # H.264 above target GiB/h: HW transcode when LG_TV_H264_SHRINK=1; else remux copy only when under target.
 # AV1: all HW tiers first; libx264 only when LG_TV_AV1_ALLOW_CPU=1 (after LG_TV_AV1_HW_ATTEMPTS queue failures).
-# LG_TV_SKIP_REMUX=1 (default): never replace REMUX / large lossless-audio sources (optimize.skipped).
+# LG_TV_SKIP_REMUX=1 (opt-out): skip Blu-ray REMUX / large lossless in-library (→ optimize.skipped).
 # encode_output_usable requires ~8s of video decode, not duration alone, before replacing the source file.
 # LG_TV_HW_DECODE=0 disables HW decode on H.264 remux. LG_TV_AV1_QSV=0 forces CPU AV1 transcode.
 # Usage: lg-tv-optimize-media.sh /mnt/jellyfin/media/series/Show/Season 1/file.mkv
@@ -52,7 +52,7 @@ mark_permanent_skip() {
 
 # Uses SOURCE_SIZE and acodec set during probe (before optimize).
 should_skip_premium_source() {
-  [[ "${LG_TV_SKIP_REMUX:-1}" == 1 ]] || return 1
+  [[ "${LG_TV_SKIP_REMUX:-0}" == 1 ]] || return 1
   local base lower
   base=$(basename "$src")
   lower="${base,,}"
@@ -63,7 +63,7 @@ should_skip_premium_source() {
   if [[ "$path_lower" == *" blu-ray remux"* ]]; then
     return 0
   fi
-  if [[ "${LG_TV_SKIP_LOSSLESS_AUDIO:-1}" == 1 && "$SOURCE_SIZE" -gt $((LG_TV_SKIP_LOSSLESS_MIN_BYTES:-8589934592)) ]]; then
+  if [[ "${LG_TV_SKIP_LOSSLESS_AUDIO:-0}" == 1 && "$SOURCE_SIZE" -gt $((LG_TV_SKIP_LOSSLESS_MIN_BYTES:-8589934592)) ]]; then
     case "$acodec" in
       dts|dts_*|truehd|mlp|pcm_*|flac) return 0 ;;
     esac
@@ -253,7 +253,7 @@ MEDIA_DUR=$(duration_sec "$cin")
 MEDIA_GIB=$(media_gib_per_hour "$SOURCE_SIZE" "$MEDIA_DUR")
 EFF_VBPS=$(effective_video_bps "$vbitrate")
 if should_skip_premium_source; then
-  log "skip (protected source — REMUX/lossless; set LG_TV_SKIP_REMUX=0 to allow): $src"
+  log "skip (protected source — REMUX/lossless; set LG_TV_SKIP_REMUX=0 in .env to transcode in library): $src"
   mark_permanent_skip
   exit 0
 fi

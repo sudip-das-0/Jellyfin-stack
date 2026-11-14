@@ -45,12 +45,17 @@ done < "$LG_TV_SKIPPED"
 while IFS= read -r path; do
   [[ -n "$path" && -f "$path" ]] || continue
   if [[ -n "${skipset[$path]:-}" ]]; then
-    if /usr/bin/python3 "${LIB_DIR}/lg_tv_storage.py" "$path" "${LG_TV_MAX_GIB_PER_HOUR:-0}" >/dev/null 2>&1; then
+  rc=0
+    /usr/bin/python3 "${LIB_DIR}/lg_tv_storage.py" --needs-optimize "$path" >/dev/null 2>&1 || rc=$?
+    if [[ "$rc" -eq 1 ]]; then
+      # Still LG-friendly — keep on optimize.skipped
       skipped=$((skipped + 1))
       continue
     fi
-    # No longer qualifies as skipped (policy changed): drop it from the skip list.
-    echo "$path" >>"$unskip_tmp"
+    if [[ "$rc" -eq 0 ]]; then
+      echo "$path" >>"$unskip_tmp"
+    fi
+    # rc 2 = probe fail: queue anyway (optimize script will log errors)
   fi
   if [[ "$DRY" -eq 1 ]]; then
     echo "would queue: $path"

@@ -114,9 +114,9 @@ export LG_TV_H264_SHRINK="${LG_TV_H264_SHRINK:-1}"
 export LG_TV_ALLOW_CPU_FALLBACK="${LG_TV_ALLOW_CPU_FALLBACK:-0}"
 # Tolerate minor stream corruption during remux (-c:v copy).
 export LG_TV_REMUX_INPUT_FLAGS="${LG_TV_REMUX_INPUT_FLAGS:--fflags +genpts+igndts -err_detect ignore_err}"
-# Never replace Blu-ray REMUX / large lossless-audio sources (Radarr quality releases).
-export LG_TV_SKIP_REMUX="${LG_TV_SKIP_REMUX:-1}"
-export LG_TV_SKIP_LOSSLESS_AUDIO="${LG_TV_SKIP_LOSSLESS_AUDIO:-1}"
+# Optional opt-out: set to 1 to leave Blu-ray REMUX / large lossless masters untouched.
+export LG_TV_SKIP_REMUX="${LG_TV_SKIP_REMUX:-0}"
+export LG_TV_SKIP_LOSSLESS_AUDIO="${LG_TV_SKIP_LOSSLESS_AUDIO:-0}"
 export LG_TV_SKIP_LOSSLESS_MIN_BYTES="${LG_TV_SKIP_LOSSLESS_MIN_BYTES:-8589934592}"
 
 # Timestamped LG TV optimize log line (appends to LG_TV_LOG; pass -t to also echo to stdout).

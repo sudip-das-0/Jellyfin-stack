@@ -234,7 +234,22 @@ def file_gib_per_hour(host_path: str) -> float | None:
     return gib_per_hour(size, dur)
 
 
+def path_needs_optimize(host_path: str) -> bool | None:
+    """True if the file still needs LG optimize; None if ffprobe failed."""
+    path, streams, duration_sec = probe_streams(host_path)
+    if streams is None:
+        return None
+    mlp = load_media_lang_policy()
+    max_gib = float(os.environ.get("LG_TV_MAX_GIB_PER_HOUR", str(DEFAULT_MAX_GIB_PER_HOUR)))
+    return needs_optimize(path, streams, duration_sec, mlp, max_gib)
+
+
 def main() -> int:
+    if len(sys.argv) >= 3 and sys.argv[1] == "--needs-optimize":
+        need = path_needs_optimize(sys.argv[2])
+        if need is None:
+            return 2
+        return 0 if need else 1
     if len(sys.argv) >= 2 and sys.argv[1] in {"--scan-unoptimized", "--scan"}:
         media_root = sys.argv[2] if len(sys.argv) > 2 else MEDIA_ROOT
         need, stats = scan_unoptimized(media_root)
@@ -245,7 +260,7 @@ def main() -> int:
     if len(sys.argv) < 2:
         print(
             "usage: lg_tv_storage.py <host-media-path> [max_gib_per_hour]"
-            " | --scan-unoptimized [media_root]",
+            " | --needs-optimize <path> | --scan-unoptimized [media_root]",
             file=sys.stderr,
         )
         return 2

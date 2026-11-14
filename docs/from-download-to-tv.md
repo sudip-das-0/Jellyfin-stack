@@ -48,7 +48,7 @@ Look in `/mnt/jellyfin/logs/stall-recovery/lg-tv-optimize.log` for:
 
 **2. HEVC / AV1 / VP9 → H.264 transcode (VAAPI first, QSV fallback)**
 
-Full re-encode (`h264_vaapi`, then `h264_qsv`, ~15 Mbps cap). Can look softer; rare encoder glitches. Less often “skip” than remux, but it **does** replace the original (except names with `REMUX` or large lossless audio, which are skipped).
+Full re-encode (`h264_vaapi`, then `h264_qsv`, ~15 Mbps cap). Can look softer; rare encoder glitches. **Blu-ray REMUX** and large lossless-audio releases use the same path (in-place on the SSD). Opt out with `LG_TV_SKIP_REMUX=1` in `.env`.
 
 Log: `encode tier ok (vaapi-hw` / `hevc-qsv` / `av1-vaapi-hw` / `h264 HW shrink`.
 
@@ -80,7 +80,7 @@ grep -F "Your.File.Name" /mnt/jellyfin/logs/stall-recovery/lg-tv-optimize.log
 ```
 
 - `done:` → library file was replaced  
-- `skipped` / `optimize.skipped` → original left alone  
+- `skipped` / `optimize.skipped` → already LG-friendly or opted out (`LG_TV_SKIP_REMUX=1`)  
 - no hit → never optimized (still the torrent bytes)
 
 There is **no backup** of the pre-optimize file once the torrent copy is deleted (`LG_TV_DELETE_TORRENT_ORIGINAL=1`). Re-download if you need the original.

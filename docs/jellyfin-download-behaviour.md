@@ -104,7 +104,8 @@ Runs immediately after dedupe in `download-maintenance.sh`.
 | Transcode | **`lg-tv-optimize.service`** runs continuously (daemon): drains queue **back-to-back** (no gap between files), then waits for new queue entries (inotify or ~10 s poll). One encode at a time. Logs **file size before/after**. |
 | Retries | Re-queue at **front** on failure. Default **`LG_TV_OPTIMIZE_MAX_RETRIES=4`**: **3** HW-only AV1 attempts (`LG_TV_AV1_HW_ATTEMPTS=3`), then one run may use **`libx264`**; then **dead-letter** if still failing. |
 | Replace | `lg-tv-optimize-media.sh` HEVC→H.264 / AV1→H.264: **VAAPI → QSV → libx264 (CPU, AV1 only after HW retries)**; then **replaces** the original only if output passes **duration + 8s video decode** checks. |
-| Protected | **`LG_TV_SKIP_REMUX=1`** (default): filenames with **REMUX** and large **DTS/TrueHD/FLAC** sources are **not** optimized (logged → `optimize.skipped`). Override per run with `LG_TV_SKIP_REMUX=0`. |
+| Blu-ray REMUX | **In-library by default** (same queue as everything else): HEVC/AV1 → H.264 transcode when needed; H.264 REMUX → stereo AAC remux. Set **`LG_TV_SKIP_REMUX=1`** in `.env` only if you want to keep masters untouched. |
+| Legacy skip list | Paths on **`optimize.skipped`** are not re-queued until you run **`lg-tv-requeue-skipped.sh`** (e.g. after turning skip flags off). |
 | Failures | Failed jobs are **re-queued** (up to 3×). **4K/UHD** allowed (`LG_TV_MAX_HEIGHT=0`). Queue leftover files: `lg-tv-queue-unoptimized.sh`. |
 
 **Timers / services (user systemd, `linger` on):**
