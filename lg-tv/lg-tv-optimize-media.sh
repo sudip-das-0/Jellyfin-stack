@@ -724,14 +724,23 @@ elif [[ "$vcodec" == "h264" ]]; then
     -sn -map_chapters -1 \
     -max_muxing_queue_size 8192 \
     $O"
-  if run_jellyfin_encode h264-remux "$h264_remux_stereo"; then
-    h264_remux_ok=1
-  fi
-  if [[ "$h264_remux_ok" -eq 0 ]]; then
-    stop_lgopt_encoders
-    log "stereo AAC remux failed — trying audio copy (5.1/multichannel preserved): $src"
+  # Source already stereo AAC (most WEB rips): copy audio — far cheaper than re-encoding to AAC.
+  if [[ "$acodec" == "aac" && "$achannels" == "2" ]]; then
     if run_jellyfin_encode h264-remux-audiocopy "$h264_remux_audiocopy"; then
       h264_remux_ok=1
+    elif run_jellyfin_encode h264-remux "$h264_remux_stereo"; then
+      h264_remux_ok=1
+    fi
+  else
+    if run_jellyfin_encode h264-remux "$h264_remux_stereo"; then
+      h264_remux_ok=1
+    fi
+    if [[ "$h264_remux_ok" -eq 0 ]]; then
+      stop_lgopt_encoders
+      log "stereo AAC remux failed — trying audio copy (5.1/multichannel preserved): $src"
+      if run_jellyfin_encode h264-remux-audiocopy "$h264_remux_audiocopy"; then
+        h264_remux_ok=1
+      fi
     fi
   fi
   if [[ "$h264_remux_ok" -eq 0 && "${LG_TV_HW_DECODE:-1}" == 1 ]]; then
