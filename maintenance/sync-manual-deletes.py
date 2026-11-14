@@ -436,13 +436,16 @@ def purge_qbit_for_items(
         return 0
 
     ep_targets: list[tuple[str, int, int]] = []
+    series_titles: dict[int, str] = {}  # one lookup per series, not per episode
     for eid in episode_ids:
         ep = arr_json(f"{SONARR_URL}/api/v3/episode/{eid}", son_key)
         if not isinstance(ep, dict):
             continue
         sid = ep.get("seriesId")
-        series = arr_json(f"{SONARR_URL}/api/v3/series/{sid}", son_key) if sid else {}
-        title = (series or {}).get("title") or ""
+        if sid and sid not in series_titles:
+            series = arr_json(f"{SONARR_URL}/api/v3/series/{sid}", son_key)
+            series_titles[sid] = (series or {}).get("title") or ""
+        title = series_titles.get(sid, "")
         ep_targets.append((title, int(ep.get("seasonNumber") or 0), int(ep.get("episodeNumber") or 0)))
 
     movie_titles: list[str] = []

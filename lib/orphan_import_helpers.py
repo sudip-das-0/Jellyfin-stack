@@ -70,38 +70,59 @@ def sonarr_parse(title: str, api_key: str) -> dict | None:
     return None
 
 
-def series_by_title(title: str, api_key: str, cache: dict[str, dict]) -> dict | None:
+# Per-run cache shared by callers (they only pass an empty dict through). Reserved keys
+# start with NUL so they can never collide with the casefolded series titles stored beside them.
+_K_SERIES = "\0series"
+_K_BY_ID = "\0by_id"
+
+
+def _load_series(api_key: str, cache: dict) -> list[dict]:
+    """Fetch /series once per cache and index it by title and id."""
+    if _K_SERIES not in cache:
+        data = arr_json(f"{SONARR_URL}/api/v3/series", api_key)
+        series_list = [s for s in data if isinstance(s, dict)] if isinstance(data, list) else []
+        cache[_K_SERIES] = series_list
+        cache[_K_BY_ID] = {s.get("id"): s for s in series_list}
+        for s in series_list:
+            cache.setdefault((s.get("title") or "").casefold(), s)
+    return cache[_K_SERIES]
+
+
+def series_by_id(series_id: int, api_key: str, cache: dict) -> dict | None:
+    _load_series(api_key, cache)
+    return cache[_K_BY_ID].get(series_id)
+
+
+def series_by_title(title: str, api_key: str, cache: dict) -> dict | None:
+    _load_series(api_key, cache)
     key = title.casefold()
-    if key in cache:
-        return cache[key]
-    series_list = arr_json(f"{SONARR_URL}/api/v3/series", api_key)
-    if not isinstance(series_list, list):
-        return None
-    for s in series_list:
-        cache[(s.get("title") or "").casefold()] = s
-    alias = SERIES_ALIASES.get(key)
-    if alias:
-        return series_by_title(alias, api_key, cache)
-    return cache.get(key)
+    found = cache.get(key)
+    if found is None:
+        alias = SERIES_ALIASES.get(key)
+        if alias and alias.casefold() != key:
+            found = cache.get(alias.casefold())
+    return found
 
 
-def episode_for_absolute(series_id: int, abs_num: int, api_key: str) -> dict | None:
-    eps = arr_json(f"{SONARR_URL}/api/v3/episode?seriesId={series_id}", api_key)
-    if not isinstance(eps, list):
-        return None
-    for ep in eps:
+def _episodes(series_id: int, api_key: str, cache: dict) -> list[dict]:
+    key = f"\0eps:{series_id}"
+    if key not in cache:
+        eps = arr_json(f"{SONARR_URL}/api/v3/episode?seriesId={series_id}", api_key)
+        cache[key] = eps if isinstance(eps, list) else []
+    return cache[key]
+
+
+def episode_for_absolute(series_id: int, abs_num: int, api_key: str, cache: dict | None = None) -> dict | None:
+    for ep in _episodes(series_id, api_key, {} if cache is None else cache):
         if ep.get("absoluteEpisodeNumber") == abs_num:
             return ep
     return None
 
 
 def episode_for_season_ep(
-    series_id: int, season: int, ep: int, api_key: str
+    series_id: int, season: int, ep: int, api_key: str, cache: dict | None = None
 ) -> dict | None:
-    eps = arr_json(f"{SONARR_URL}/api/v3/episode?seriesId={series_id}", api_key)
-    if not isinstance(eps, list):
-        return None
-    for e in eps:
+    for e in _episodes(series_id, api_key, {} if cache is None else cache):
         if e.get("seasonNumber") == season and e.get("episodeNumber") == ep:
             return e
     return None
@@ -139,11 +160,11 @@ def resolve_episode_from_filename(name: str, api_key: str, cache: dict) -> dict 
 
     sid = int(series["id"])
     if episodes and season and int(season) > 0:
-        ep = episode_for_season_ep(sid, int(season), int(episodes[0]), api_key)
+        ep = episode_for_season_ep(sid, int(season), int(episodes[0]), api_key, cache)
         if ep:
             return ep
     if absolutes:
-        ep = episode_for_absolute(sid, int(absolutes[0]), api_key)
+        ep = episode_for_absolute(sid, int(absolutes[0]), api_key, cache)
         if ep:
             return ep
     return None
@@ -156,13 +177,8 @@ def import_friendly_staging_path(host_file: Path, api_key: str, cache: dict) -> 
 
     sn = int(ep.get("seasonNumber") or 0)
     en = int(ep.get("episodeNumber") or 0)
-    series_list = arr_json(f"{SONARR_URL}/api/v3/series", api_key)
-    show_title = "Show"
-    if isinstance(series_list, list):
-        for s in series_list:
-            if s.get("id") == ep.get("seriesId"):
-                show_title = s.get("title") or show_title
-                break
+    show = series_by_id(ep.get("seriesId"), api_key, cache)
+    show_title = (show or {}).get("title") or "Show"
 
     parsed = sonarr_parse(host_file.name, api_key)
     needs_stage = bool(
@@ -192,13 +208,7 @@ def import_orphan_into_library(
     ep = resolve_episode_from_filename(host_file.name, api_key, cache)
     if not ep or ep.get("hasFile"):
         return None
-    series_list = arr_json(f"{SONARR_URL}/api/v3/series", api_key)
-    series = None
-    if isinstance(series_list, list):
-        for s in series_list:
-            if s.get("id") == ep.get("seriesId"):
-                series = s
-                break
+    series = series_by_id(ep.get("seriesId"), api_key, cache)
     if not series:
         return None
 
@@ -221,19 +231,35 @@ def import_orphan_into_library(
     else:
         shutil.copy2(host_file, dest)
 
-    arr_json(
+    cmd = arr_json(
         f"{SONARR_URL}/api/v3/command",
         api_key,
         method="POST",
         body={"name": "RescanSeries", "seriesId": int(series["id"])},
     )
-    for _ in range(60):
-        time.sleep(1)
+    cache.pop(f"\0eps:{series['id']}", None)  # hasFile flips after the rescan
+    _wait_for_command(cmd, api_key)
+    # The command is done (or timed out); the episode file row may land a moment later.
+    for attempt in range(6):
         ep2 = arr_json(f"{SONARR_URL}/api/v3/episode/{ep['id']}", api_key)
         if isinstance(ep2, dict) and ep2.get("hasFile"):
-            mp = media_path_from_episode(ep2, api_key)
-            return mp
+            return media_path_from_episode(ep2, api_key)
+        time.sleep(1)
     return None
+
+
+def _wait_for_command(cmd: object, api_key: str, timeout: float = 60.0) -> None:
+    """Poll a Sonarr command until it finishes; returns early when the id is unknown."""
+    cmd_id = cmd.get("id") if isinstance(cmd, dict) else None
+    if cmd_id is None:
+        time.sleep(2)
+        return
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        state = arr_json(f"{SONARR_URL}/api/v3/command/{cmd_id}", api_key)
+        if isinstance(state, dict) and state.get("status") in {"completed", "failed", "aborted", "cancelled", "orphaned"}:
+            return
+        time.sleep(0.5)
 
 
 def queue_lg_optimize(host_media_path: Path) -> None:

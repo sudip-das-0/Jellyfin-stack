@@ -34,7 +34,8 @@ MEDIA_ROOTS = (
 
 
 def file_hash(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    with path.open("rb") as fh:
+        return hashlib.file_digest(fh, "sha256").hexdigest()
 
 
 def dialogue_lines(text: str) -> list[str]:
