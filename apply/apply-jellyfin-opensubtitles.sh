@@ -25,7 +25,7 @@ PASS=$(read_os_cred password)
   exit 1
 }
 
-API_KEY=$(sqlite3 "$JELLYFIN_DB" "SELECT AccessToken FROM ApiKeys LIMIT 1;")
+API_KEY=$(read_jellyfin_api_key)
 [[ -n "$API_KEY" ]] || {
   echo "No Jellyfin API key in $JELLYFIN_DB" >&2
   exit 1

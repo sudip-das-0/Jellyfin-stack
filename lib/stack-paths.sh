@@ -56,6 +56,13 @@ read_arr_api_key() {
   grep -oP '(?<=<ApiKey>)[^<]+' "${1:?}"
 }
 
+# Jellyfin API key from the DB: newest/first key, or the one named $1. Prints nothing if absent.
+read_jellyfin_api_key() {
+  local name=${1:-} q="SELECT AccessToken FROM ApiKeys LIMIT 1;"
+  [[ -n "$name" ]] && q="SELECT AccessToken FROM ApiKeys WHERE Name='${name//\'/}' LIMIT 1;"
+  sqlite3 "$JELLYFIN_DB" "$q" 2>/dev/null || true
+}
+
 read_bazarr_api_key() {
   grep -A2 '^auth:' "${BAZARR_CONFIG:?}" | grep apikey | awk '{print $2}'
 }

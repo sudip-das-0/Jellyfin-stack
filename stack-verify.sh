@@ -101,7 +101,7 @@ sys.exit(0 if ok else 1)
 " &>/dev/null && ok "Bazarr sees Sonarr/Radarr versions" || warn "Bazarr Sonarr/Radarr connection broken (run bazarr-resync-from-arr.sh after fixing network)"
 
 echo "=== Jellyfin Open Subtitles plugin ==="
-JF_KEY=$(sqlite3 /mnt/jellyfin/jellyfin/config/data/jellyfin.db "SELECT AccessToken FROM ApiKeys LIMIT 1;" 2>/dev/null || true)
+JF_KEY=$(read_jellyfin_api_key)
 if [[ -n "${JF_KEY:-}" ]]; then
   curl -sf -H "Authorization: MediaBrowser Token=\"$JF_KEY\"" http://127.0.0.1:8096/Plugins | python3 -c "
 import json,sys
@@ -161,8 +161,8 @@ if [[ -n "$stale_sysd" ]]; then
 else
   ok "systemd user units use live /mnt/jellyfin paths"
 fi
-if [[ -f /mnt/jellyfin/jellyfin/config/data/jellyfin.db ]]; then
-  stale_db=$(sqlite3 /mnt/jellyfin/jellyfin/config/data/jellyfin.db \
+if [[ -f "$JELLYFIN_DB" ]]; then
+  stale_db=$(sqlite3 "$JELLYFIN_DB" \
     "SELECT COUNT(*) FROM BaseItems WHERE Path LIKE '%jellyfin-hdd%' OR Path LIKE '%jellyfin-ssd%';" 2>/dev/null || echo 0)
   [[ "${stale_db:-0}" == 0 ]] && ok "jellyfin.db library paths on live mount" \
     || warn "jellyfin.db has $stale_db item path(s) still pointing at old mount names"
@@ -172,7 +172,7 @@ need_exec "$DIR/lg-tv/lg-tv-optimize-daemon.sh"
 need_exec "$DIR/lg-tv/lg-tv-optimize-media.sh"
 need_exec "$DIR/lg-tv/lg-tv-queue-unoptimized.sh"
 need_exec "$DIR/hooks/lg-tv-queue-path.sh"
-if [[ -f /mnt/jellyfin/jellyfin/config/plugins/LAPSE_2.1.4.0/Jellyfin.Plugin.Lapse.dll ]]; then
+if [[ -f "${JELLYFIN_CONFIG_ROOT}/plugins/LAPSE_2.1.4.0/Jellyfin.Plugin.Lapse.dll" ]]; then
   ok "LAPSE plugin files present"
 else
   warn "LAPSE plugin files missing (run apply/apply-lapse-plugin.py)"
@@ -242,12 +242,12 @@ if timeout 15 docker exec jellyfin test -e /dev/dri/renderD128 2>/dev/null; then
 else
   warn "Jellyfin renderD128 check failed (busy or no device)"
 fi
-if grep -q '<HardwareAccelerationType>vaapi</HardwareAccelerationType>' /mnt/jellyfin/jellyfin/config/config/encoding.xml 2>/dev/null; then
+if grep -q '<HardwareAccelerationType>vaapi</HardwareAccelerationType>' "${JELLYFIN_CONFIG_ROOT}/config/encoding.xml" 2>/dev/null; then
   ok "encoding.xml VAAPI"
 else
   warn "encoding.xml not set to VAAPI"
 fi
-ENC_XML=/mnt/jellyfin/jellyfin/config/config/encoding.xml
+ENC_XML="${JELLYFIN_CONFIG_ROOT}/config/encoding.xml"
 if [[ -f "$ENC_XML" ]]; then
   for c in h264 hevc av1 vp9; do
     if grep -q "<string>$c</string>" "$ENC_XML" 2>/dev/null; then

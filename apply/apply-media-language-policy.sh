@@ -55,8 +55,7 @@ apply_existing_library() {
   fi
 
   echo "Refreshing Jellyfin library (pick up sidecar changes)..."
-  API_KEY=$(sqlite3 "$JELLYFIN_DB" \
-    "SELECT AccessToken FROM ApiKeys WHERE Name='arr-stack' LIMIT 1;" 2>/dev/null || true)
+  API_KEY=$(read_jellyfin_api_key arr-stack)
   if [[ -n "${API_KEY:-}" ]]; then
     curl -sf -X POST -H "Authorization: MediaBrowser Token=\"$API_KEY\"" \
       "${JELLYFIN_URL}/Library/Refresh" -o /dev/null 2>/dev/null || true

@@ -331,6 +331,27 @@ def qbit_json(
         return _read_json(resp, empty=None)
 
 
+def qbit_recheck_resume_errored() -> int:
+    """Recheck + resume torrents in error/missingFiles state (after the SSD was re-plugged).
+
+    Returns how many torrents were touched.
+    """
+    info = qbit_json("/api/v2/torrents/info")
+    if not isinstance(info, list):
+        raise OSError("unexpected qBittorrent /torrents/info response")
+    bad = [t["hash"] for t in info if t.get("state") in ("error", "missingFiles")]
+    if not bad:
+        return 0
+    body = urllib.parse.urlencode({"hashes": "|".join(bad)}).encode()
+    for path in ("/api/v2/torrents/recheck", "/api/v2/torrents/resume"):
+        qbit_json(path, method="POST", data=body)
+    return len(bad)
+
+
+def qbit_pause_all() -> None:
+    qbit_json("/api/v2/torrents/pause", method="POST", data=b"hashes=all")
+
+
 def host_torrent_path(raw: str) -> str:
     """Map a qBittorrent container path (/data/torrents/...) to the host torrents root."""
     prefix = "/data/torrents"

@@ -131,11 +131,10 @@ jellyfin_qbit_pause_all() {
   command -v python3 >/dev/null 2>&1 || return 0
   [[ -r "${LIB_DIR}/arr_common.py" ]] || return 0
   jellyfin_container_running qbittorrent || return 0
-  python3 <<PY || true
-import os, sys, urllib.parse
-sys.path.insert(0, os.environ.get("SCRIPTS_ROOT", "/mnt/jellyfin/scripts") + "/lib")
-from arr_common import qbit_json
-body = urllib.parse.urlencode({"hashes": "all"}).encode()
-qbit_json("/api/v2/torrents/pause", method="POST", data=body)
+  python3 - <<PY || true
+import sys
+sys.path.insert(0, "${LIB_DIR}")
+from arr_common import qbit_pause_all
+qbit_pause_all()
 PY
 }
