@@ -253,7 +253,7 @@ MEDIA_DUR=$(duration_sec "$cin")
 MEDIA_GIB=$(media_gib_per_hour "$SOURCE_SIZE" "$MEDIA_DUR")
 EFF_VBPS=$(effective_video_bps "$vbitrate")
 if should_skip_premium_source; then
-  log "skip (protected source — REMUX/lossless; set LG_TV_SKIP_REMUX=0 in .env to transcode in library): $src"
+  log "skip (protected source — REMUX/lossless; set LG_TV_SKIP_REMUX=0 in .env to allow in-library transcode): $src"
   mark_permanent_skip
   exit 0
 fi
