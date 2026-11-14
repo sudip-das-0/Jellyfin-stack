@@ -1,6 +1,6 @@
 """Shared helpers for *arr / qBittorrent maintenance scripts (stdlib only).
 
-Sections: paths · HTTP (*arr/qBit) · queue/notifications · logging · stall helpers
+Sections: paths · HTTP (*arr/qBit) · JSON state · queue/notifications · logging · stall helpers
 """
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ import base64
 import json
 import os
 import re
+import tempfile
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -50,6 +51,16 @@ SONARR_URL = os.environ.get("SONARR_URL", "http://127.0.0.1:8989")
 RADARR_URL = os.environ.get("RADARR_URL", "http://127.0.0.1:7878")
 QBIT_URL = os.environ.get("QBIT_URL", "http://127.0.0.1:8080")
 
+# Video containers the library/torrent scanners treat as media (one definition for all scripts).
+VIDEO_EXTENSIONS = frozenset({".mkv", ".mp4", ".m4v", ".avi", ".wmv", ".ts", ".m2ts"})
+
+# Largest HTTP body we parse (a full Sonarr library listing is a few MiB).
+MAX_RESPONSE_BYTES = 64 * 1024 * 1024
+
+# qBittorrent WebUI credentials; override via QBIT_USER / QBIT_PASS in the stack .env.
+QBIT_USER_DEFAULT = "Dimpu"
+QBIT_PASS_DEFAULT = "adminadmin"
+
 _MEDIA_LANG_POLICY = None
 
 
@@ -86,6 +97,14 @@ def read_bazarr_api_key() -> str:
     raise RuntimeError(f"No apikey in {BAZARR_CONFIG}")
 
 
+def _read_json(resp, *, empty: object) -> object:
+    """Parse a JSON body, refusing responses larger than MAX_RESPONSE_BYTES."""
+    raw = resp.read(MAX_RESPONSE_BYTES + 1)
+    if len(raw) > MAX_RESPONSE_BYTES:
+        raise ValueError(f"response larger than {MAX_RESPONSE_BYTES} bytes")
+    return json.loads(raw.decode()) if raw else empty
+
+
 def arr_json(
     url: str,
     api_key: str,
@@ -101,8 +120,7 @@ def arr_json(
         headers["Content-Type"] = "application/json"
     req = urllib.request.Request(url, data=data, method=method, headers=headers)
     with urllib.request.urlopen(req, timeout=timeout) as resp:
-        raw = resp.read()
-        return json.loads(raw.decode()) if raw else {}
+        return _read_json(resp, empty={})
 
 
 def norm_qbit_hash(h: str) -> str:
@@ -302,16 +320,101 @@ def qbit_json(
     password: str | None = None,
     timeout: int = 120,
 ) -> object:
-    user = user or os.environ.get("QBIT_USER", "Dimpu")
-    password = password or os.environ.get("QBIT_PASS", "adminadmin")
+    user = user or os.environ.get("QBIT_USER", QBIT_USER_DEFAULT)
+    password = password or os.environ.get("QBIT_PASS", QBIT_PASS_DEFAULT)
     req = urllib.request.Request(f"{QBIT_URL}{path}", data=data, method=method)
     token = base64.b64encode(f"{user}:{password}".encode()).decode()
     req.add_header("Authorization", f"Basic {token}")
     if data is not None:
         req.add_header("Content-Type", "application/x-www-form-urlencoded")
     with urllib.request.urlopen(req, timeout=timeout) as resp:
-        raw = resp.read()
-        return json.loads(raw.decode()) if raw else None
+        return _read_json(resp, empty=None)
+
+
+def host_torrent_path(raw: str) -> str:
+    """Map a qBittorrent container path (/data/torrents/...) to the host torrents root."""
+    prefix = "/data/torrents"
+    if raw == prefix or raw.startswith(prefix + "/"):
+        return str(TORRENTS_ROOT) + raw[len(prefix) :]
+    return raw
+
+
+def torrent_content_root(t: dict) -> Path:
+    """Host path of a qBittorrent torrent's content (file or folder)."""
+    content = t.get("content_path") or ""
+    if not content:
+        content = os.path.join(t.get("save_path") or "/data/torrents", t.get("name") or "")
+    return Path(host_torrent_path(content))
+
+
+_QBIT_UNFINISHED_STATES = frozenset(
+    {
+        "downloading",
+        "metaDL",
+        "stalledDL",
+        "queuedDL",
+        "checkingDL",
+        "pausedDL",
+        "allocating",
+    }
+)
+
+
+def qbit_unfinished_content_roots() -> set[Path]:
+    """Content roots of torrents still grabbing data (incl. queued/paused-before-complete).
+
+    Raises OSError/URLError when qBittorrent cannot be queried, so callers can fail closed
+    instead of deleting files that may still be downloading.
+    """
+    torrents = qbit_json("/api/v2/torrents/info")
+    if not isinstance(torrents, list):
+        raise OSError("unexpected qBittorrent /torrents/info response")
+    return {
+        torrent_content_root(t)
+        for t in torrents
+        if float(t.get("progress") or 0) < 0.999 or (t.get("state") or "") in _QBIT_UNFINISHED_STATES
+    }
+
+
+def qbit_set_preferences(patch: dict, *, timeout: int = 120) -> None:
+    """POST /api/v2/app/setPreferences with a partial preferences dict."""
+    body = urllib.parse.urlencode({"json": json.dumps(patch)}).encode()
+    qbit_json("/api/v2/app/setPreferences", method="POST", data=body, timeout=timeout)
+
+
+def load_json_state(path: Path, default: object = None) -> object:
+    """Read a JSON state file. Missing -> default; corrupt -> moved aside to *.corrupt, default.
+
+    default may be a dict/list (copied) or a zero-arg callable returning a fresh value.
+    """
+    def fresh() -> object:
+        if callable(default):
+            return default()
+        return json.loads(json.dumps(default)) if default is not None else {}
+
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return fresh()
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        try:
+            path.replace(path.with_suffix(path.suffix + ".corrupt"))
+        except OSError:
+            pass
+        return fresh()
+
+
+def save_json_state(path: Path, state: object, *, indent: int | None = 2) -> None:
+    """Atomically write JSON (temp file + rename) so readers never see a partial file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(state, f, indent=indent)
+        os.replace(tmp, path)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
 
 
 def rotate_log_file(path: Path, max_bytes: int = 2_000_000) -> None:
@@ -383,45 +486,48 @@ def qbit_completed_grace_hashes() -> set[str]:
     return protected
 
 
-def qbit_queue_protected_hashes() -> set[str]:
+def _arr_queue_rows() -> list[dict]:
+    """Sonarr + Radarr queue rows (each instance fetched once)."""
+    rows: list[dict] = []
+    for base_url, config in (
+        (SONARR_URL, SONARR_CONFIG),
+        (RADARR_URL, RADARR_CONFIG),
+    ):
+        rows.extend(fetch_arr_queue(base_url, read_api_key(config)))
+    return rows
+
+
+def _queue_row_hash(row: dict) -> str | None:
+    download_id = row.get("downloadId")
+    return str(download_id).casefold() if download_id else None
+
+
+def _import_blocked(row: dict) -> bool:
+    state = (row.get("trackedDownloadState") or "").casefold()
+    status = (row.get("trackedDownloadStatus") or "").casefold()
+    return state == "importblocked" or status == "warning"
+
+
+def qbit_queue_protected_hashes(rows: list[dict] | None = None) -> set[str]:
     """qBittorrent info-hashes still tracked in Sonarr/Radarr download queues."""
-    protected: set[str] = set()
-    for base_url, config in (
-        (SONARR_URL, SONARR_CONFIG),
-        (RADARR_URL, RADARR_CONFIG),
-    ):
-        api_key = read_api_key(config)
-        for row in fetch_arr_queue(base_url, api_key):
-            download_id = row.get("downloadId")
-            if download_id:
-                protected.add(str(download_id).casefold())
-    return protected
+    rows = _arr_queue_rows() if rows is None else rows
+    return {h for h in map(_queue_row_hash, rows) if h}
 
 
-def qbit_import_blocked_hashes() -> set[str]:
+def qbit_import_blocked_hashes(rows: list[dict] | None = None) -> set[str]:
     """Torrents Sonarr/Radarr marked completed in client but import is still blocked (keep data)."""
-    protected: set[str] = set()
-    for base_url, config in (
-        (SONARR_URL, SONARR_CONFIG),
-        (RADARR_URL, RADARR_CONFIG),
-    ):
-        api_key = read_api_key(config)
-        for row in fetch_arr_queue(base_url, api_key):
-            state = (row.get("trackedDownloadState") or "").casefold()
-            status = (row.get("trackedDownloadStatus") or "").casefold()
-            if state == "importblocked" or status == "warning":
-                download_id = row.get("downloadId")
-                if download_id:
-                    protected.add(str(download_id).casefold())
-    return protected
+    rows = _arr_queue_rows() if rows is None else rows
+    return {h for r in rows if _import_blocked(r) and (h := _queue_row_hash(r))}
 
 
 def qbit_all_protected_hashes() -> set[str]:
-    """Queue rows + import-blocked + post-complete import grace window."""
-    out = qbit_queue_protected_hashes()
-    out |= qbit_import_blocked_hashes()
-    out |= qbit_completed_grace_hashes()
-    return out
+    """Queue rows + import-blocked + post-complete import grace window (one queue fetch)."""
+    rows = _arr_queue_rows()
+    return (
+        qbit_queue_protected_hashes(rows)
+        | qbit_import_blocked_hashes(rows)
+        | qbit_completed_grace_hashes()
+    )
 
 
 def append_recovery_log(
@@ -448,6 +554,8 @@ def iter_incomplete_seasons(
     """
     Returns list of (title, series_id, season_number, have, total) for monitored
     seasons that are incomplete on disk. partial_only: only 0 < have < total.
+
+    The series list already carries per-season statistics, so one request covers the library.
     """
     series_list = arr_json(f"{SONARR_URL}/api/v3/series", api_key)
     if not isinstance(series_list, list):
@@ -457,10 +565,7 @@ def iter_incomplete_seasons(
     for show in series_list:
         sid = show["id"]
         title = show.get("title", "?")
-        detail = arr_json(f"{SONARR_URL}/api/v3/series/{sid}", api_key)
-        if not isinstance(detail, dict):
-            continue
-        for season in detail.get("seasons") or []:
+        for season in show.get("seasons") or []:
             if not season.get("monitored"):
                 continue
             sn = season.get("seasonNumber")

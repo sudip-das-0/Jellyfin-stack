@@ -8,9 +8,11 @@ via download-maintenance, Jellyfin Webhook (ItemDeleted), or Sonarr/Radarr file-
 from __future__ import annotations
 
 import argparse
+import fcntl
 import os
 import re
 import sys
+import urllib.error
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
@@ -45,6 +47,24 @@ IMPORT_EVENTS = frozenset(
 
 def log(msg: str) -> None:
     echo_script_log(LOG, msg)
+
+
+def _under(path: Path, root: Path) -> bool:
+    """True when path is root or inside it (component-wise, so /a/Foo does not match /a/Foo Bar)."""
+    return path == root or root in path.parents
+
+
+def _delete_arr_file(url: str, api_key: str, what: str) -> bool:
+    """DELETE a stale episodefile/moviefile record; log (never hide) failures."""
+    try:
+        arr_json(url, api_key, method="DELETE")
+        return True
+    except urllib.error.HTTPError as exc:
+        if exc.code != 404:  # 404 = already gone
+            log(f"WARN: could not delete stale {what} ({url}): HTTP {exc.code}")
+    except OSError as exc:  # URLError / timeouts
+        log(f"WARN: could not delete stale {what} ({url}): {exc}")
+    return False
 
 
 def arr_path_to_host(path: str) -> Path:
@@ -102,9 +122,8 @@ def episode_missing_on_disk(ep: dict, ef_path_by_episode: dict[int, str]) -> boo
     ef_path = ef_path_by_episode.get(eid)
     if ef_path:
         return not arr_path_to_host(ef_path).is_file()
-    if ep.get("hasFile"):
-        return True
-    return not ep.get("hasFile")
+    # No file record: missing whether Sonarr thinks it has one or not.
+    return True
 
 
 def sonarr_imported_episode_ids(api_key: str) -> set[int]:
@@ -169,17 +188,12 @@ def sonarr_unmonitor_deleted(
                 for eid in ef.get("episodeIds") or []:
                     ef_path_by_episode[int(eid)] = path
                 if path and not arr_path_to_host(path).is_file():
-                    try:
-                        arr_json(
-                            f"{SONARR_URL}/api/v3/episodefile/{ef['id']}",
-                            api_key,
-                            method="DELETE",
-                        )
+                    if _delete_arr_file(
+                        f"{SONARR_URL}/api/v3/episodefile/{ef['id']}", api_key, "episodefile"
+                    ):
                         stale_files += 1
                         for eid in ef.get("episodeIds") or []:
                             ef_path_by_episode.pop(int(eid), None)
-                    except OSError:
-                        pass
         for ep in episodes:
             eid = int(ep["id"])
             if not ep.get("monitored"):
@@ -199,9 +213,10 @@ def _path_match_target(path: str, targets: set[str], dir_targets: list[Path]) ->
     if not path:
         return False
     host = arr_path_to_host(path)
-    if path in targets or str(host.resolve()) in targets:
+    resolved = host.resolve()
+    if path in targets or str(resolved) in targets:
         return True
-    return any(str(host.resolve()).startswith(str(d)) for d in dir_targets)
+    return any(_under(resolved, d) for d in dir_targets)
 
 
 def sonarr_unmonitor_for_paths(
@@ -231,10 +246,9 @@ def sonarr_unmonitor_for_paths(
     for series in series_list:
         sid = int(series["id"])
         series_host = arr_path_to_host(series.get("path") or "")
+        series_resolved = series_host.resolve()
         series_dir_hit = any(
-            str(series_host.resolve()).startswith(str(d))
-            or str(d).startswith(str(series_host.resolve()))
-            for d in dir_targets
+            _under(series_resolved, d) or _under(d, series_resolved) for d in dir_targets
         )
         episodes = arr_json(f"{SONARR_URL}/api/v3/episode?seriesId={sid}", api_key)
         if not isinstance(episodes, list):
@@ -249,17 +263,12 @@ def sonarr_unmonitor_for_paths(
                 if _path_match_target(path, targets, dir_targets):
                     host = arr_path_to_host(path)
                     if path and host and not host.is_file():
-                        try:
-                            arr_json(
-                                f"{SONARR_URL}/api/v3/episodefile/{ef['id']}",
-                                api_key,
-                                method="DELETE",
-                            )
+                        if _delete_arr_file(
+                            f"{SONARR_URL}/api/v3/episodefile/{ef['id']}", api_key, "episodefile"
+                        ):
                             stale_files += 1
                             for eid in ef.get("episodeIds") or []:
                                 ef_path_by_episode.pop(int(eid), None)
-                        except OSError:
-                            pass
 
         for ep in episodes:
             eid = int(ep["id"])
@@ -329,14 +338,7 @@ def radarr_unmonitor_deleted(
             continue
         mf = m.get("movieFile") or {}
         if mf.get("id") and mf.get("path") and not arr_path_to_host(mf["path"]).is_file():
-            try:
-                arr_json(
-                    f"{RADARR_URL}/api/v3/moviefile/{mf['id']}",
-                    api_key,
-                    method="DELETE",
-                )
-            except OSError:
-                pass
+            _delete_arr_file(f"{RADARR_URL}/api/v3/moviefile/{mf['id']}", api_key, "moviefile")
         if require_imported and mid not in imported:
             continue
         m["monitored"] = False
@@ -375,18 +377,12 @@ def radarr_unmonitor_for_paths(api_key: str, media_paths: list[Path]) -> tuple[i
         movie_dir = arr_path_to_host(m.get("path") or "")
         match = path in targets or (host and str(host.resolve()) in targets)
         if not match and dir_targets:
-            match = any(str(movie_dir.resolve()).startswith(str(d)) for d in dir_targets)
+            movie_resolved = movie_dir.resolve()
+            match = any(_under(movie_resolved, d) for d in dir_targets)
         if not match:
             continue
         if mf.get("id") and host and not host.is_file():
-            try:
-                arr_json(
-                    f"{RADARR_URL}/api/v3/moviefile/{mf['id']}",
-                    api_key,
-                    method="DELETE",
-                )
-            except OSError:
-                pass
+            _delete_arr_file(f"{RADARR_URL}/api/v3/moviefile/{mf['id']}", api_key, "moviefile")
         m["monitored"] = False
         arr_json(f"{RADARR_URL}/api/v3/movie/{mid}", api_key, method="PUT", body=m)
         unmon_ids.append(mid)
@@ -402,6 +398,18 @@ EP_PATTERNS = (
     re.compile(r"EP(?P<e>\d{1,3})\b", re.I),
     re.compile(r"Episode\s*(?P<e>\d{1,3})\b", re.I),
 )
+
+
+_LEADING_GROUPS = re.compile(r"^(\s*\[[^\]]*\])+\s*")
+
+
+def torrent_name_starts_with_title(name: str, title: str) -> bool:
+    """Release name begins with the title's words (after any [Group] tag), on a word boundary."""
+    tokens = re.findall(r"[A-Za-z0-9]+", title)
+    if not tokens:
+        return False
+    pattern = r"^[\W_]*" + r"[\W_]+".join(re.escape(t) for t in tokens) + r"(?![A-Za-z0-9])"
+    return re.search(pattern, _LEADING_GROUPS.sub("", name), re.I) is not None
 
 
 def torrent_matches_episode(name: str, season: int, episode: int) -> bool:
@@ -456,7 +464,7 @@ def purge_qbit_for_items(
         nl = norm(name)
         matched = False
         for mn, raw in movie_norm:
-            if mn and mn in nl:
+            if mn and torrent_name_starts_with_title(name, raw):
                 hashes.append(h)
                 seen.add(h)
                 log(f"qbit_remove_movie: {raw[:60]}")
@@ -468,7 +476,12 @@ def purge_qbit_for_items(
             if not torrent_matches_episode(name, season, episode):
                 continue
             tnorm = norm(title)
-            if tnorm and len(tnorm) >= 8 and tnorm[:10] not in nl:
+            # Short titles ("Dark", "Bleach") must match as a real prefix; long ones may
+            # also match anywhere (fansub names reorder words).
+            title_ok = torrent_name_starts_with_title(name, title) or (
+                len(tnorm) >= 8 and tnorm[:10] in nl
+            )
+            if not title_ok:
                 continue
             hashes.append(h)
             seen.add(h)
@@ -486,8 +499,13 @@ def prune_failed_queue(
     *,
     episode_ids: list[int] | None = None,
     movie_ids: list[int] | None = None,
+    prune_errors: bool = False,
 ) -> None:
-    """Drop queue rows only for episodes/movies actually unmonitored — not the whole series."""
+    """Drop queue rows only for episodes/movies actually unmonitored — not the whole series.
+
+    prune_errors additionally drops any row that reports a missing-file/failed state; only the
+    full (library-wide) sync enables it, so a path-targeted sync never touches unrelated series.
+    """
     ep_set = {int(x) for x in (episode_ids or [])}
     mov_set = {int(x) for x in (movie_ids or [])}
     removed = 0
@@ -505,6 +523,8 @@ def prune_failed_queue(
                     if arr_queue_remove(base, key, item["id"], blocklist=True):
                         removed += 1
                     continue
+            if not prune_errors:
+                continue
             err = (item.get("errorMessage") or "").lower()
             if "missing" in err or item.get("trackedDownloadStatus") in (
                 "importFailed",
@@ -520,15 +540,19 @@ def finish_sync(
     rad_key: str,
     ep_ids: list[int],
     movie_ids: list[int],
+    *,
+    prune_errors: bool = False,
 ) -> None:
-    prune_failed_queue(son_key, rad_key, episode_ids=ep_ids, movie_ids=movie_ids)
+    prune_failed_queue(
+        son_key, rad_key, episode_ids=ep_ids, movie_ids=movie_ids, prune_errors=prune_errors
+    )
     purge_qbit_for_items(son_key, rad_key, ep_ids, movie_ids)
 
 
 def run_full_sync(son_key: str, rad_key: str) -> None:
     _, _, ep_ids = sonarr_unmonitor_deleted(son_key)
     _, movie_ids = radarr_unmonitor_deleted(rad_key)
-    finish_sync(son_key, rad_key, ep_ids, movie_ids)
+    finish_sync(son_key, rad_key, ep_ids, movie_ids, prune_errors=True)
 
 
 def run_path_sync(son_key: str, rad_key: str, media_paths: list[Path]) -> None:
@@ -538,13 +562,29 @@ def run_path_sync(son_key: str, rad_key: str, media_paths: list[Path]) -> None:
 
 
 def drain_delete_queue() -> list[str]:
+    """Take every queued path. Uses the same flock file as the *arr hooks' queue_append_unique."""
     if not DELETE_QUEUE.is_file():
         return []
-    lines = [ln.strip() for ln in DELETE_QUEUE.read_text(encoding="utf-8").splitlines() if ln.strip()]
-    DELETE_QUEUE.unlink(missing_ok=True)
+    with open(f"{DELETE_QUEUE}.flock", "a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        lines = [
+            ln.strip() for ln in DELETE_QUEUE.read_text(encoding="utf-8").splitlines() if ln.strip()
+        ]
+        DELETE_QUEUE.write_text("", encoding="utf-8")
     if lines:
         log(f"delete_queue: {len(lines)} path(s)")
     return lines
+
+
+def requeue_deleted_paths(lines: list[str]) -> None:
+    """Put drained paths back after a failed sync so the next run retries them."""
+    if not lines:
+        return
+    with open(f"{DELETE_QUEUE}.flock", "a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        with DELETE_QUEUE.open("a", encoding="utf-8") as f:
+            f.write("\n".join(lines) + "\n")
+    log(f"delete_queue: sync failed, re-queued {len(lines)} path(s)")
 
 
 def paths_from_environ() -> list[str]:
@@ -582,20 +622,20 @@ def main(argv: list[str] | None = None) -> int:
     son_key = read_api_key(SONARR_CONFIG)
     rad_key = read_api_key(RADARR_CONFIG)
 
-    raw_paths = (
-        list(args.path or [])
-        + list(args.arr_path or [])
-        + drain_delete_queue()
-        + paths_from_environ()
-    )
+    queued = drain_delete_queue()
+    raw_paths = list(args.path or []) + list(args.arr_path or []) + queued + paths_from_environ()
     media_paths = paths_under_media(raw_paths)
-    if media_paths:
-        log(f"path_sync: {len(media_paths)} path(s)")
-        for p in media_paths[:8]:
-            log(f"  {p}")
-        run_path_sync(son_key, rad_key, media_paths)
-    else:
-        run_full_sync(son_key, rad_key)
+    try:
+        if media_paths:
+            log(f"path_sync: {len(media_paths)} path(s)")
+            for p in media_paths[:8]:
+                log(f"  {p}")
+            run_path_sync(son_key, rad_key, media_paths)
+        else:
+            run_full_sync(son_key, rad_key)
+    except BaseException:
+        requeue_deleted_paths(queued)
+        raise
     return 0
 
 

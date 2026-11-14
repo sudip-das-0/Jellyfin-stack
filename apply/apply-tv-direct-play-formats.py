@@ -251,6 +251,8 @@ FORMATS = [
 def ensure_formats(base_url: str, api_key: str) -> dict[str, int]:
     existing = arr_json(f"{base_url}/api/v3/customformat", api_key)
     by_name = {cf["name"]: cf["id"] for cf in existing} if isinstance(existing, list) else {}
+    if not by_name and not isinstance(existing, list):
+        raise RuntimeError(f"{base_url}: unexpected customformat response: {existing!r:.200}")
 
     for fmt in FORMATS:
         name = fmt["name"]
@@ -260,6 +262,8 @@ def ensure_formats(base_url: str, api_key: str) -> dict[str, int]:
             print(f"{base_url}: updated custom format {name} (id={cf_id})")
             continue
         created = arr_json(f"{base_url}/api/v3/customformat", api_key, method="POST", body=fmt)
+        if not isinstance(created, dict) or "id" not in created:
+            raise RuntimeError(f"{base_url}: creating custom format {name!r} failed: {created!r:.200}")
         by_name[name] = created["id"]
         print(f"{base_url}: created custom format {name} (id={created['id']})")
 
@@ -310,8 +314,15 @@ def _apply_profile_scores(
     return profile
 
 
-def apply_profile(base_url: str, api_key: str, name_to_id: dict[str, int]) -> None:
+def _quality_profiles(base_url: str, api_key: str) -> list[dict]:
     profiles = arr_json(f"{base_url}/api/v3/qualityprofile", api_key)
+    if not isinstance(profiles, list):
+        raise RuntimeError(f"{base_url}: unexpected qualityprofile response: {profiles!r:.200}")
+    return profiles
+
+
+def apply_profile(base_url: str, api_key: str, name_to_id: dict[str, int]) -> None:
+    profiles = _quality_profiles(base_url, api_key)
     _apply_profile_scores(
         base_url,
         api_key,
@@ -324,7 +335,7 @@ def apply_profile(base_url: str, api_key: str, name_to_id: dict[str, int]) -> No
 
 
 def apply_anime_profile(base_url: str, api_key: str, name_to_id: dict[str, int]) -> int:
-    profiles = arr_json(f"{base_url}/api/v3/qualityprofile", api_key)
+    profiles = _quality_profiles(base_url, api_key)
     profile = _apply_profile_scores(
         base_url,
         api_key,
@@ -340,6 +351,8 @@ def apply_anime_profile(base_url: str, api_key: str, name_to_id: dict[str, int])
 
 def assign_sonarr_anime_quality_profile(base_url: str, api_key: str, anime_profile_id: int) -> None:
     series_list = arr_json(f"{base_url}/api/v3/series", api_key)
+    if not isinstance(series_list, list):
+        raise RuntimeError(f"{base_url}: unexpected series response: {series_list!r:.200}")
     updated = 0
     for series in series_list:
         is_anime = series.get("seriesType") == "anime" or "/anime" in (
@@ -367,6 +380,9 @@ def main() -> int:
                 assign_sonarr_anime_quality_profile(base, api_key, anime_id)
         except urllib.error.URLError as e:
             print(f"{label} unavailable: {e}", file=sys.stderr)
+            return 1
+        except RuntimeError as e:
+            print(f"{label}: {e}", file=sys.stderr)
             return 1
     return 0
 

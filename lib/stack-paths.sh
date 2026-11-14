@@ -28,6 +28,9 @@ HOST_DIR="${SCRIPTS_ROOT}/host"
 JF_SCRIPTS="${SCRIPTS_ROOT}/jellyfin"
 HOOKS_DIR="${SCRIPTS_ROOT}/hooks"
 TEMP_DIR="${SCRIPTS_ROOT}/temp"
+# Queue/flock helpers shared with the *arr container hooks (queue_append_unique, queue_drain, ...).
+# shellcheck source=../hooks/hook-lib.sh
+source "${HOOKS_DIR}/hook-lib.sh"
 export PYTHONPATH="${LIB_DIR}${PYTHONPATH:+:$PYTHONPATH}"
 CONFIG_ROOT="${CONFIG_ROOT:-${HOME}/arr}"
 SONARR_CONFIG="${CONFIG_ROOT}/config/sonarr/config.xml"
@@ -108,3 +111,28 @@ export LG_TV_REMUX_INPUT_FLAGS="${LG_TV_REMUX_INPUT_FLAGS:--fflags +genpts+igndt
 export LG_TV_SKIP_REMUX="${LG_TV_SKIP_REMUX:-1}"
 export LG_TV_SKIP_LOSSLESS_AUDIO="${LG_TV_SKIP_LOSSLESS_AUDIO:-1}"
 export LG_TV_SKIP_LOSSLESS_MIN_BYTES="${LG_TV_SKIP_LOSSLESS_MIN_BYTES:-8589934592}"
+
+# Timestamped LG TV optimize log line (appends to LG_TV_LOG; pass -t to also echo to stdout).
+lg_tv_log() {
+  local tee=0
+  [[ "${1:-}" == "-t" ]] && { tee=1; shift; }
+  local line
+  line="$(date -Iseconds) $*"
+  mkdir -p "$(dirname "$LG_TV_LOG")"
+  echo "$line" >>"$LG_TV_LOG"
+  (( tee )) && echo "$line"
+  return 0
+}
+
+# docker compose for this stack; falls back to sudo (-n when non-interactive) without docker group.
+stack_compose() {
+  local -a dc=(docker compose -f "${SCRIPTS_ROOT}/docker-compose.yml")
+  [[ -f "${SCRIPTS_ROOT}/.env" ]] && dc+=(--env-file "${SCRIPTS_ROOT}/.env")
+  if docker info &>/dev/null; then
+    (cd "$SCRIPTS_ROOT" && "${dc[@]}" "$@")
+  elif [[ -t 0 ]]; then
+    (cd "$SCRIPTS_ROOT" && sudo "${dc[@]}" "$@")
+  else
+    (cd "$SCRIPTS_ROOT" && sudo -n "${dc[@]}" "$@")
+  fi
+}

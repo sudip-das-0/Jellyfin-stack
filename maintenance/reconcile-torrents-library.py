@@ -28,7 +28,9 @@ from orphan_import_helpers import (
     STAGING,
     TORRENTS,
     VIDEO_EXT,
+    docker_torrent_path,
     import_orphan_into_library,
+    queue_lg_optimize,
     resolve_episode_from_filename,
 )
 
@@ -93,8 +95,6 @@ def try_import_file(
         return "imported"
 
     # Radarr: folder scan for loose movie files
-    from orphan_import_helpers import docker_torrent_path
-
     body = {
         "name": "DownloadedMoviesScan",
         "path": docker_torrent_path(host_file.parent),

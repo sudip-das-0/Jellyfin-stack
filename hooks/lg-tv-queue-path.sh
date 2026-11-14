@@ -1,56 +1,42 @@
 #!/usr/bin/env bash
 # Queue a media file for LG TV optimize (host or Sonarr/Radarr container).
 set -euo pipefail
+# shellcheck source=hook-lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/hook-lib.sh"
 
 [[ "${LG_TV_OPTIMIZE_ENABLED:-0}" == "1" ]] || exit 0
 
 raw="${1:-${sonarr_episodefile_path:-${radarr_moviefile_path:-}}}"
 [[ -n "$raw" ]] || exit 0
 
-path="$raw"
-if [[ "$raw" == /data/media/* ]]; then
-  path="/mnt/jellyfin/${raw#/data/}"
-fi
+path=$(hook_host_path "$raw")
+hook_is_video_path "$path" || exit 0
+[[ -f "$raw" || -f "$path" ]] || exit 0
 
-case "$path" in
-  *.mkv|*.mp4|*.m2ts|*.ts|*.M2TS|*.TS) ;;
-  *) exit 0 ;;
-esac
+LG_DIR="$(hook_log_root)/lg-tv"
+QUEUE="${LG_DIR}/optimize.queue"
+SKIPPED="${LG_DIR}/optimize.skipped"
+BASELINE="${LG_DIR}/watcher.baseline"
+RETRIES="${LG_DIR}/optimize.retries.tsv"
 
-if [[ ! -f "$raw" && ! -f "$path" ]]; then
-  exit 0
-fi
+mkdir -p "$LG_DIR"
+touch "$SKIPPED"
+grep -Fxq -- "$path" "$SKIPPED" 2>/dev/null && exit 0
+queue_append_unique "$QUEUE" "$path" || exit 0
+queue_append_unique "$BASELINE" "$path" || true
 
-if [[ -d /data/logs ]]; then
-  QUEUE=/data/logs/lg-tv/optimize.queue
-  SKIPPED=/data/logs/lg-tv/optimize.skipped
-  BASELINE=/data/logs/lg-tv/watcher.baseline
-else
-  QUEUE=/mnt/jellyfin/logs/lg-tv/optimize.queue
-  SKIPPED=/mnt/jellyfin/logs/lg-tv/optimize.skipped
-  BASELINE=/mnt/jellyfin/logs/lg-tv/watcher.baseline
-fi
-RETRIES="$(dirname "$QUEUE")/optimize.retries.tsv"
+# Bulk queue runs (LG_TV_QUEUE_NO_START=1) skip worker start and retry trimming;
+# process-queue trims on drain.
+[[ "${LG_TV_QUEUE_NO_START:-0}" == 1 ]] && exit 0
 
-mkdir -p "$(dirname "$QUEUE")"
-touch "$QUEUE" "$SKIPPED"
-grep -Fxq "$path" "$SKIPPED" 2>/dev/null && exit 0
-grep -Fxq "$path" "$QUEUE" 2>/dev/null && exit 0
-echo "$path" >> "$QUEUE"
-grep -Fxq "$path" "$BASELINE" 2>/dev/null || echo "$path" >> "$BASELINE"
-if [[ "${LG_TV_QUEUE_NO_START:-0}" != 1 ]]; then
-  systemctl --user start --no-block lg-tv-optimize.service 2>/dev/null || true
-fi
+systemctl --user start --no-block lg-tv-optimize.service 2>/dev/null || true
 
-# Bulk queue runs trim on each path; skip here (process-queue trims on drain).
-if [[ "${LG_TV_QUEUE_NO_START:-0}" == 1 ]]; then
-  exit 0
-fi
-
+# A fresh queue entry resets earlier failures for this path (and its /data alias).
 if [[ -f "$RETRIES" ]]; then
-  tmp=$(mktemp)
   data_alias=""
-  [[ "$path" == /mnt/jellyfin/media/* ]] && data_alias="/data/${path#/mnt/jellyfin/}"
-  awk -F '\t' -v p="$path" -v d="$data_alias" 'NF && $1 != p && (d == "" || $1 != d) { print }' "$RETRIES" > "$tmp"
-  mv -f "$tmp" "$RETRIES"
+  [[ "$path" == "${JELLYFIN_MNT:-/mnt/jellyfin}"/media/* ]] && data_alias="/data/${path#"${JELLYFIN_MNT:-/mnt/jellyfin}"/}"
+  _drop_retry() {
+    awk -F '\t' -v p="$path" -v d="$data_alias" 'NF && $1 != p && (d == "" || $1 != d)'
+  }
+  queue_filter "$RETRIES" _drop_retry || true
 fi

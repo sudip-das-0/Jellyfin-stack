@@ -46,10 +46,10 @@ mount_ssd() {
     need_sudo sed -i "/$JELLYFIN_UUID/s/,user,exec//g" /etc/fstab
   fi
   # Drop GNOME /run/media duplicate even when /mnt/jellyfin is already up.
-  findmnt -S "UUID=$JELLYFIN_UUID" -no TARGET 2>/dev/null | while read -r t; do
-    [[ "$t" == "$JELLYFIN_MNT" ]] && continue
+  while read -r t; do
+    [[ -n "$t" && "$t" != "$JELLYFIN_MNT" ]] || continue
     need_sudo umount "$t" || true
-  done
+  done < <(findmnt -S "UUID=$JELLYFIN_UUID" -no TARGET 2>/dev/null || true)
   if mountpoint -q "$JELLYFIN_MNT"; then
     echo "already mounted"
   else
@@ -111,13 +111,8 @@ install_units() {
 
 start_stack() {
   echo "=== docker compose ==="
-  local compose=(docker compose --env-file "$SCRIPTS_ROOT/.env" -f "$SCRIPTS_ROOT/docker-compose.yml")
-  if docker info &>/dev/null; then
-    (cd "$SCRIPTS_ROOT" && "${compose[@]}" pull && "${compose[@]}" up -d)
-  else
-    need_sudo docker compose --env-file "$SCRIPTS_ROOT/.env" -f "$SCRIPTS_ROOT/docker-compose.yml" pull
-    need_sudo docker compose --env-file "$SCRIPTS_ROOT/.env" -f "$SCRIPTS_ROOT/docker-compose.yml" up -d
-  fi
+  stack_compose pull
+  stack_compose up -d
 }
 
 print_next() {

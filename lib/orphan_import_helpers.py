@@ -6,6 +6,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import time
 import urllib.parse
 from pathlib import Path
@@ -201,9 +202,10 @@ def import_orphan_into_library(
     if dest.resolve() == host_file.resolve():
         pass
     elif dest.exists():
-        if dest.stat().st_ino == host_file.stat().st_ino:
-            pass
-        else:
+        if dest.stat().st_ino != host_file.stat().st_ino:
+            sys.stderr.write(
+                f"orphan-import: {dest} already exists and differs from {host_file}; not importing\n"
+            )
             return None
     elif move:
         shutil.move(str(host_file), str(dest))
@@ -231,7 +233,7 @@ def queue_lg_optimize(host_media_path: Path) -> None:
     script = SCRIPTS_ROOT / "hooks/lg-tv-queue-path.sh"
     if not script.is_file() or not host_media_path.is_file():
         return
-    env = {**subprocess.os.environ, "LG_TV_QUEUE_NO_START": "1"}
+    env = {**os.environ, "LG_TV_QUEUE_NO_START": "1"}
     subprocess.run([str(script), str(host_media_path)], check=False, env=env)
 
 

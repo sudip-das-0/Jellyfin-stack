@@ -45,7 +45,7 @@ fix_mblinks() {
 fix_library_paths_in_db() {
   python3 - "$DB" <<'PY'
 import json, sqlite3, sys
-db = sqlite3.connect(sys.argv[1])
+db = sqlite3.connect(sys.argv[1], timeout=30)
 rows = db.execute(
     "SELECT Id, Data FROM BaseItems WHERE Type LIKE '%CollectionFolder%' AND Data IS NOT NULL"
 ).fetchall()
@@ -137,21 +137,22 @@ else:
 PY
 }
 
-trim_lg_queue_state() {
-  local RETRIES=$LG_TV_RETRIES
-  [[ -f "$RETRIES" ]] || return 0
-  local tmp removed=0
-  tmp=$(mktemp)
+# Keep only retry rows whose file still exists (stdin -> stdout).
+_keep_existing_retries() {
+  local path count
   while IFS=$'\t' read -r path count; do
-    [[ -n "$path" ]] || continue
-    if [[ -f "$path" ]]; then
-      printf '%s\t%s\n' "$path" "${count:-0}"
-    else
-      removed=$((removed + 1))
-    fi
-  done < "$RETRIES" > "$tmp"
-  mv -f "$tmp" "$RETRIES"
-  echo "LG TV retries: dropped ${removed} stale path(s)."
+    [[ -n "$path" && -f "$path" ]] && printf '%s\t%s\n' "$path" "${count:-0}"
+  done
+  return 0
+}
+
+trim_lg_queue_state() {
+  [[ -f "$LG_TV_RETRIES" ]] || return 0
+  local before after
+  before=$(wc -l <"$LG_TV_RETRIES")
+  queue_filter "$LG_TV_RETRIES" _keep_existing_retries || return 0
+  after=$(wc -l <"$LG_TV_RETRIES")
+  echo "LG TV retries: dropped $((before - after)) stale path(s)."
 }
 
 fix_mblinks

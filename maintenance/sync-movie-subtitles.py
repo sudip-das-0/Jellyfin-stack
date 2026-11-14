@@ -7,7 +7,6 @@ Writes synced text to `{stem}.srt` and keeps `{stem}.srt.unsynced` as backup.
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import re
 import shutil
@@ -17,13 +16,23 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
-from arr_common import LOG_ROOT, MEDIA_ROOT, SCRIPTS_ROOT, TZ, echo_script_log, jellyfin_volume_ready
+from arr_common import (
+    LOG_ROOT,
+    MEDIA_ROOT,
+    SCRIPTS_ROOT,
+    TZ,
+    echo_script_log,
+    jellyfin_volume_ready,
+    load_json_state,
+    save_json_state,
+)
 
 MEDIA_MOVIES = MEDIA_ROOT / "movies"
 LOG_DIR = LOG_ROOT / "subs-sync"
 STATE_PATH = LOG_DIR / "state.json"
 VENV_FFS = SCRIPTS_ROOT / ".venv-subsync/bin/ffs"
 VIDEO_EXT = {".mkv", ".mp4", ".m4v", ".avi"}
+SUBSYNC_TIMEOUT_SEC = int(os.environ.get("SUBSYNC_TIMEOUT_SEC", "1800"))
 LIBRARY_DIRS = ("movies", "series", "anime")
 FOREIGN_SRT = re.compile(
     r"\.(jpn|ja|kor|ko|hin|hi|fre|fra|fr|deu|ger|de|spa|es|ita|it|por|pt|rus|ru|chi|zh)\.srt$",
@@ -38,17 +47,15 @@ def log(msg: str) -> None:
 
 
 def load_state() -> dict:
-    if not STATE_PATH.exists():
+    state = load_json_state(STATE_PATH, lambda: {"movies": {}})
+    if not isinstance(state, dict):
         return {"movies": {}}
-    try:
-        return json.loads(STATE_PATH.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        return {"movies": {}}
+    state.setdefault("movies", {})
+    return state
 
 
 def save_state(state: dict) -> None:
-    LOG_DIR.mkdir(parents=True, exist_ok=True)
-    STATE_PATH.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    save_json_state(STATE_PATH, state)
 
 
 def pick_english_srt(folder: Path, stem: str) -> Path | None:
@@ -82,6 +89,7 @@ def parse_ffsubsync_log(text: str) -> dict:
 
 def sync_one(
     video: Path,
+    state: dict,
     *,
     ffs: Path,
     max_offset: float,
@@ -92,8 +100,7 @@ def sync_one(
     folder = video.parent
     stem = video.stem
     key = str(video.resolve())
-    state = load_state()
-    prev = (state.get("movies") or {}).get(key) or {}
+    prev = state["movies"].get(key) or {}
     if prev.get("status") == "ok" and not force:
         return f"skip (already synced): {video.name}"
 
@@ -128,14 +135,22 @@ def sync_one(
     if split_penalty:
         args.append("--split-penalty")
 
-    proc = subprocess.run(args, capture_output=True, text=True)
-    log_text = (proc.stdout or "") + (proc.stderr or "")
+    try:
+        proc = subprocess.run(
+            args, capture_output=True, text=True, timeout=SUBSYNC_TIMEOUT_SEC
+        )
+        returncode = proc.returncode
+        log_text = (proc.stdout or "") + (proc.stderr or "")
+    except subprocess.TimeoutExpired as exc:
+        returncode = -1
+        log_text = f"timed out after {SUBSYNC_TIMEOUT_SEC}s " + str(exc.stderr or "")
     meta = parse_ffsubsync_log(log_text)
 
-    if proc.returncode != 0 or meta.get("skipped") or not out_tmp.is_file():
+    if returncode != 0 or meta.get("skipped") or not out_tmp.is_file():
+        out_tmp.unlink(missing_ok=True)
         meta["status"] = "failed"
         meta["at"] = datetime.now(timezone.utc).isoformat()
-        state.setdefault("movies", {})[key] = meta
+        state["movies"][key] = meta
         save_state(state)
         tail = " | ".join(log_text.strip().splitlines()[-2:])
         return f"FAIL {video.name}: {tail[:200]}"
@@ -158,7 +173,7 @@ def sync_one(
     meta["status"] = "ok"
     meta["at"] = datetime.now(timezone.utc).isoformat()
     meta["source"] = src.name
-    state.setdefault("movies", {})[key] = meta
+    state["movies"][key] = meta
     save_state(state)
     off = meta.get("offset_seconds", "?")
     return f"OK {video.name} (offset {off}s)"
@@ -210,7 +225,7 @@ def main() -> int:
 
     if not jellyfin_volume_ready():
         log("skipped — jellyfin SSD not ready")
-        return 0
+        return 2
 
     ffs = Path(os.environ.get("FFS_BIN", VENV_FFS))
     if args.path:
@@ -233,9 +248,11 @@ def main() -> int:
         parser.error("use --path, --movie, or --all")
 
     ok = fail = skip = 0
+    state = load_state()
     for video in targets:
         msg = sync_one(
             video,
+            state,
             ffs=ffs,
             max_offset=args.max_offset,
             split_penalty=args.split_penalty,

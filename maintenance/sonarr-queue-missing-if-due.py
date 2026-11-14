@@ -2,7 +2,6 @@
 """Queue Sonarr MissingEpisodeSearch when seasons are incomplete (rate-limited)."""
 from __future__ import annotations
 
-import json
 import os
 import sys
 import time
@@ -16,8 +15,10 @@ from arr_common import (
     STALL_LOG_DIR,
     append_recovery_log,
     arr_json,
+    load_json_state,
     queue_arr_command,
     read_api_key,
+    save_json_state,
     wanted_missing_count,
 )
 
@@ -30,12 +31,7 @@ def cooldown_seconds() -> int:
 
 
 def load_state() -> dict:
-    if not STATE.exists():
-        return {}
-    try:
-        return json.loads(STATE.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        return {}
+    return load_json_state(STATE, dict)
 
 
 def missing_search_active(api_key: str) -> bool:
@@ -70,8 +66,7 @@ def main() -> int:
     cmd = queue_arr_command(SONARR_URL, api_key, "MissingEpisodeSearch")
     state["last_trigger"] = now
     state["missing_at_trigger"] = missing
-    STATE.parent.mkdir(parents=True, exist_ok=True)
-    STATE.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    save_json_state(STATE, state)
     msg = (
         f"sonarr-queue-missing-if-due: MissingEpisodeSearch id={cmd.get('id')} "
         f"status={cmd.get('status')} (missing={missing})"

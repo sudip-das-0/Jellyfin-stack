@@ -5,16 +5,7 @@ set -euo pipefail
 source "$(dirname "$0")/../lib/stack-paths.sh"
 path="${1:-}"
 [[ -n "$path" ]] || exit 0
-[[ -f "$LG_TV_QUEUE" ]] || exit 0
 
-tmp=$(mktemp "${LG_TV_DIR}/.purge.XXXXXX")
-if grep -vxF "$path" "$LG_TV_QUEUE" >"$tmp" 2>/dev/null; then
-  if [[ -s "$tmp" ]]; then
-    mv -f "$tmp" "$LG_TV_QUEUE"
-  else
-    : >"$LG_TV_QUEUE"
-    rm -f "$tmp"
-  fi
-else
-  rm -f "$tmp"
-fi
+# grep -v exits 1 when nothing is left, which is a valid (empty) queue.
+_without_path() { grep -vxF -- "$path" || true; }
+queue_filter "$LG_TV_QUEUE" _without_path

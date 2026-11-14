@@ -28,18 +28,21 @@ from arr_common import (
     SONARR_URL,
     STALL_LOG_DIR,
     TORRENTS_ROOT,
+    VIDEO_EXTENSIONS,
     append_recovery_log,
     arr_json,
     echo_script_log,
     qbit_delete,
     qbit_json,
+    qbit_unfinished_content_roots,
     read_api_key,
+    torrent_content_root,
 )
 from orphan_import_helpers import resolve_episode_from_filename
 
 TORRENTS = TORRENTS_ROOT
 MEDIA = MEDIA_ROOT
-VIDEO_EXT = {".mkv", ".mp4", ".m4v", ".avi", ".wmv", ".ts", ".m2ts"}
+VIDEO_EXT = VIDEO_EXTENSIONS
 LOG_FILE = STALL_LOG_DIR / "torrent-library-cleanup.log"
 
 EP_RE = re.compile(r"[Ss](\d{1,2})[Ee](\d{1,2})")
@@ -50,13 +53,8 @@ def log(msg: str) -> None:
     echo_script_log(LOG_FILE, msg, rotate=True)
 
 
-def host_torrent_path(raw: str) -> str:
-    tor = str(TORRENTS)
-    if raw.startswith("/data/torrents"):
-        return tor + raw[len("/data/torrents") :]
-    if raw.startswith(tor):
-        return raw
-    return raw
+def _under(path: Path, root: Path) -> bool:
+    return path == root or root in path.parents
 
 
 def norm(s: str) -> str:
@@ -72,57 +70,16 @@ def map_docker_media(path: str) -> Path:
     return Path(path)
 
 
-def qbit_protected_roots() -> set[Path]:
-    protected: set[Path] = set()
-    try:
-        torrents = qbit_json("/api/v2/torrents/info")
-    except urllib.error.URLError as e:
-        log(f"warning: qBittorrent unavailable, skipping in-progress protection: {e}")
-        return protected
-    if not isinstance(torrents, list):
-        return protected
-    incomplete_states = {
-        "downloading",
-        "metaDL",
-        "stalledDL",
-        "queuedDL",
-        "checkingDL",
-        "pausedDL",
-        "allocating",
-    }
-    for t in torrents:
-        progress = float(t.get("progress") or 0)
-        state = t.get("state") or ""
-        # Keep files for jobs still grabbing data (including queued/not started).
-        if progress >= 0.999 and state not in incomplete_states:
-            continue
-        content = t.get("content_path") or ""
-        if not content:
-            save = t.get("save_path") or "/data/torrents"
-            content = os.path.join(save, t.get("name") or "")
-        p = Path(host_torrent_path(content))
-        protected.add(p)
-    return protected
-
-
 def qbit_content_index() -> list[tuple[Path, str]]:
     """All torrent content roots → info-hash (for removing client jobs on duplicates)."""
     index: list[tuple[Path, str]] = []
-    try:
-        torrents = qbit_json("/api/v2/torrents/info")
-    except urllib.error.URLError:
-        return index
+    torrents = qbit_json("/api/v2/torrents/info")
     if not isinstance(torrents, list):
-        return index
+        raise OSError("unexpected qBittorrent /torrents/info response")
     for t in torrents:
         h = t.get("hash")
-        if not h:
-            continue
-        content = t.get("content_path") or ""
-        if not content:
-            save = t.get("save_path") or "/data/torrents"
-            content = os.path.join(save, t.get("name") or "")
-        index.append((Path(host_torrent_path(content)), str(h)))
+        if h:
+            index.append((torrent_content_root(t), str(h)))
     return index
 
 
@@ -156,19 +113,37 @@ def is_protected(path: Path, protected: set[Path]) -> bool:
     return False
 
 
-def media_paths_by_inode() -> dict[int, list[Path]]:
+def scan_media() -> tuple[dict[int, list[Path]], list[Path]]:
+    """One walk of MEDIA -> (inode -> paths, all video paths)."""
     by_inode: dict[int, list[Path]] = {}
+    videos: list[Path] = []
     for root, _, files in os.walk(MEDIA):
         for name in files:
             if Path(name).suffix.lower() not in VIDEO_EXT:
                 continue
             p = Path(root) / name
+            videos.append(p)
             try:
                 ino = p.stat().st_ino
             except OSError:
                 continue
             by_inode.setdefault(ino, []).append(p)
-    return by_inode
+    return by_inode, videos
+
+
+EpisodeIndex = dict[tuple[int, int], list[tuple[Path, str]]]
+
+
+def build_episode_index(media_videos: list[Path]) -> EpisodeIndex:
+    """(season, episode) -> [(path, normalized posix path)] so lookups are not O(library)."""
+    index: EpisodeIndex = {}
+    for mv in media_videos:
+        m = EP_RE.search(mv.name)
+        if m:
+            index.setdefault((int(m.group(1)), int(m.group(2))), []).append(
+                (mv, norm(mv.as_posix()))
+            )
+    return index
 
 
 def load_arr_matchers() -> set[str]:
@@ -186,8 +161,10 @@ def load_arr_matchers() -> set[str]:
                     scene_tokens.add(norm(Path(val).name))
                     scene_tokens.add(norm(Path(val).stem))
             mf_path = mf.get("path") or ""
-            if mf_path and map_docker_media(mf_path).is_file():
-                scene_tokens.add(norm(m.get("title") or ""))
+            if mf_path and map_docker_media(mf_path).is_file() and m.get("year"):
+                # Title alone also matches sequels ("The Matrix" vs "The Matrix Reloaded");
+                # title+year is specific to the library copy.
+                scene_tokens.add(norm(f"{m.get('title') or ''}{m['year']}"))
     except (urllib.error.URLError, OSError) as e:
         log(f"warning: Radarr match data partial: {e}")
 
@@ -198,7 +175,6 @@ def load_arr_matchers() -> set[str]:
             sid = series.get("id")
             if sid is None:
                 continue
-            scene_tokens.add(norm(series.get("title") or ""))
             try:
                 files = arr_json(
                     f"{SONARR_URL}/api/v3/episodefile?seriesId={int(sid)}",
@@ -249,24 +225,19 @@ def show_name_tokens(path: Path) -> list[str]:
     return out
 
 
-def episode_duplicate_in_library(path: Path, media_videos: list[Path]) -> bool:
+def episode_duplicate_in_library(path: Path, ep_index: EpisodeIndex) -> bool:
     """Same SxxExx already in media/ with a matching show token in the torrent name."""
     m = EP_RE.search(path.name)
     if not m:
         return False
-    season, ep = int(m.group(1)), int(m.group(2))
+    candidates = ep_index.get((int(m.group(1)), int(m.group(2))), [])
+    if not candidates:
+        return False
     tnorm = norm(path.name)
-    show_tokens = show_name_tokens(path)
-    for mv in media_videos:
-        m2 = EP_RE.search(mv.name)
-        if not m2:
-            continue
-        if int(m2.group(1)) != season or int(m2.group(2)) != ep:
-            continue
-        mv_norm = norm(mv.as_posix())
-        for tok in show_tokens:
-            if len(tok) >= 5 and tok in mv_norm:
-                return True
+    show_tokens = [t for t in show_name_tokens(path) if len(t) >= 5]
+    for mv, mv_norm in candidates:
+        if any(tok in mv_norm for tok in show_tokens):
+            return True
         try:
             rel = mv.relative_to(MEDIA)
         except ValueError:
@@ -274,47 +245,25 @@ def episode_duplicate_in_library(path: Path, media_videos: list[Path]) -> bool:
         if len(rel.parts) < 2:
             continue
         series_norm = norm(rel.parts[1])
-        for chunk in re.split(r"[^a-z0-9]+", series_norm):
-            if len(chunk) >= 5 and chunk in tnorm:
-                return True
-    return False
-
-
-def path_matches_arr(path: Path, scene_tokens: set[str], media_videos: list[Path]) -> bool:
-    blob = norm(str(path))
-    m_ep = EP_RE.search(path.name)
-    for tok in scene_tokens:
-        if len(tok) < 8:
-            continue
-        if tok in blob:
-            # TV episodes: scene/release tokens alone are not enough (series may be partial).
-            if m_ep:
-                if episode_duplicate_in_library(path, media_videos):
-                    return True
-            else:
-                return True
-    if episode_duplicate_in_library(path, media_videos):
-        return True
-    m = EP_RE.search(path.name)
-    if not m:
-        return False
-    season, ep = int(m.group(1)), int(m.group(2))
-    show_guess = norm(path.parent.name)
-    if len(show_guess) < 4:
-        return False
-    for mv in media_videos:
-        if not EP_RE.search(mv.name):
-            continue
-        m2 = EP_RE.search(mv.name)
-        if not m2:
-            continue
-        if int(m2.group(1)) != season or int(m2.group(2)) != ep:
-            continue
-        if show_guess[:12] in norm(mv.parent.as_posix()) or show_guess[:12] in norm(
-            mv.as_posix()
-        ):
+        if any(len(chunk) >= 5 and chunk in tnorm for chunk in re.split(r"[^a-z0-9]+", series_norm)):
             return True
     return False
+
+
+def path_matches_arr(path: Path, scene_tokens: set[str], ep_index: EpisodeIndex) -> bool:
+    m_ep = EP_RE.search(path.name)
+    if m_ep:
+        # TV episodes: scene/release tokens alone are not enough (series may be partial);
+        # the same SxxExx must already exist in the library.
+        if episode_duplicate_in_library(path, ep_index):
+            return True
+        show_guess = norm(path.parent.name)
+        if len(show_guess) < 4:
+            return False
+        key = (int(m_ep.group(1)), int(m_ep.group(2)))
+        return any(show_guess[:12] in mv_norm for _, mv_norm in ep_index.get(key, []))
+    blob = norm(str(path))
+    return any(len(tok) >= 8 and tok in blob for tok in scene_tokens)
 
 
 def is_library_duplicate(
@@ -322,20 +271,18 @@ def is_library_duplicate(
     *,
     media_by_inode: dict[int, list[Path]],
     scene_tokens: set[str],
-    media_videos: list[Path],
+    ep_index: EpisodeIndex,
     sonarr_key: str,
     cache: dict,
 ) -> tuple[bool, bool]:
     """Returns (is_duplicate, is_hardlink_to_media)."""
     try:
-        ino = path.stat().st_ino
-        nlink = path.stat().st_nlink
+        st = path.stat()
     except OSError:
         return False, False
-    media_links = [mp for mp in media_by_inode.get(ino, []) if str(mp).startswith(str(MEDIA))]
-    if media_links:
-        return True, nlink > 1
-    if path_matches_arr(path, scene_tokens, media_videos):
+    if any(_under(mp, MEDIA) for mp in media_by_inode.get(st.st_ino, [])):
+        return True, st.st_nlink > 1
+    if path_matches_arr(path, scene_tokens, ep_index):
         return True, False
     ep = resolve_episode_from_filename(path.name, sonarr_key, cache)
     if ep and ep.get("hasFile"):
@@ -343,17 +290,8 @@ def is_library_duplicate(
     return False, False
 
 
-def collect_media_videos() -> list[Path]:
-    out: list[Path] = []
-    for root, _, files in os.walk(MEDIA):
-        for name in files:
-            if Path(name).suffix.lower() in VIDEO_EXT:
-                out.append(Path(root) / name)
-    return out
-
-
 def prune_empty_dirs(start: Path) -> None:
-    if not str(start).startswith(str(TORRENTS)):
+    if not _under(start, TORRENTS):
         return
     cur = start
     while cur != TORRENTS and cur.is_dir():
@@ -409,13 +347,21 @@ def main() -> int:
         log(f"torrents root missing: {TORRENTS}")
         return 1
 
-    protected = qbit_protected_roots()
-    qbit_index = qbit_content_index()
+    try:
+        protected = qbit_unfinished_content_roots()
+        qbit_index = qbit_content_index()
+    except OSError as e:
+        # Without qBittorrent we cannot tell which files are still downloading: fail closed.
+        log(f"qBittorrent unavailable ({e}): in-progress files cannot be protected")
+        if not args.dry_run:
+            log("refusing to delete anything; re-run when qBittorrent is up")
+            return 1
+        protected, qbit_index = set(), []
     log(f"qBittorrent protected roots (in-progress): {len(protected)}")
 
-    media_by_inode = media_paths_by_inode()
+    media_by_inode, media_videos = scan_media()
+    ep_index = build_episode_index(media_videos)
     scene_tokens = load_arr_matchers()
-    media_videos = collect_media_videos()
     sonarr_key = read_api_key(SONARR_CONFIG)
     sonarr_cache: dict = {}
     log(f"media video files: {len(media_videos)}; scene tokens: {len(scene_tokens)}")
@@ -435,7 +381,7 @@ def main() -> int:
                 p,
                 media_by_inode=media_by_inode,
                 scene_tokens=scene_tokens,
-                media_videos=media_videos,
+                ep_index=ep_index,
                 sonarr_key=sonarr_key,
                 cache=sonarr_cache,
             )

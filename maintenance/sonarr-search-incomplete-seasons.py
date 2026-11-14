@@ -2,7 +2,6 @@
 """SeasonSearch for incomplete monitored seasons (default 12h cooldown per season)."""
 from __future__ import annotations
 
-import json
 import os
 import sys
 import time
@@ -10,7 +9,16 @@ import urllib.error
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
-from arr_common import SONARR_CONFIG, SONARR_URL, STALL_LOG_DIR, arr_json, iter_incomplete_seasons, read_api_key
+from arr_common import (
+    SONARR_CONFIG,
+    SONARR_URL,
+    STALL_LOG_DIR,
+    arr_json,
+    iter_incomplete_seasons,
+    load_json_state,
+    read_api_key,
+    save_json_state,
+)
 
 STATE = STALL_LOG_DIR / "sonarr-missing-search.json"
 def _season_search_cooldown_hours() -> int:
@@ -28,12 +36,7 @@ def _max_per_run() -> int:
 
 
 def load_state() -> dict[str, float]:
-    if not STATE.exists():
-        return {}
-    try:
-        return json.loads(STATE.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        return {}
+    return load_json_state(STATE, dict)
 
 
 def main() -> int:
@@ -66,7 +69,7 @@ def main() -> int:
             print(f"[missing-search] failed {title} S{sn}: {e}", file=sys.stderr)
 
     STATE.parent.mkdir(parents=True, exist_ok=True)
-    STATE.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    save_json_state(STATE, state)
     return 0
 
 

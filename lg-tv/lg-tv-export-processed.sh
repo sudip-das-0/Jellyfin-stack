@@ -25,7 +25,8 @@ log() { echo "$(date -Iseconds) $*" | tee -a "$LOG"; }
 
 purge_scratch_skip_entries() {
   [[ -f "${LG_TV_SKIPPED}" ]] || return 0
-  sed -i "\|^${SCRATCH_ROOT}/|d" "${LG_TV_SKIPPED}" 2>/dev/null || true
+  _not_scratch() { awk -v root="${SCRATCH_ROOT}/" 'index($0, root) != 1'; }
+  queue_filter "${LG_TV_SKIPPED}" _not_scratch || true
 }
 
 file_size() {

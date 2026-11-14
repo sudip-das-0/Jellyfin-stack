@@ -34,37 +34,50 @@ if [[ "$DRY" -eq 0 ]]; then
   sleep 1
 fi
 merge_tmp=$(mktemp)
+unskip_tmp=$(mktemp)
 touch "$LG_TV_SKIPPED" 2>/dev/null || true
+
+declare -A skipset=() queued=()
+while IFS= read -r path; do
+  [[ -n "$path" ]] && skipset["$path"]=1
+done < "$LG_TV_SKIPPED"
+
 while IFS= read -r path; do
   [[ -n "$path" && -f "$path" ]] || continue
-  if grep -Fxq "$path" "$LG_TV_SKIPPED" 2>/dev/null; then
+  if [[ -n "${skipset[$path]:-}" ]]; then
     if /usr/bin/python3 "${LIB_DIR}/lg_tv_storage.py" "$path" "${LG_TV_MAX_GIB_PER_HOUR:-0}" >/dev/null 2>&1; then
       skipped=$((skipped + 1))
       continue
     fi
-    grep -vxF "$path" "$LG_TV_SKIPPED" > "${LG_TV_SKIPPED}.tmp" 2>/dev/null \
-      && mv "${LG_TV_SKIPPED}.tmp" "$LG_TV_SKIPPED" || true
+    # No longer qualifies as skipped (policy changed): drop it from the skip list.
+    echo "$path" >>"$unskip_tmp"
   fi
   if [[ "$DRY" -eq 1 ]]; then
     echo "would queue: $path"
     added=$((added + 1))
     continue
   fi
-  if grep -Fxq "$path" "$merge_tmp" 2>/dev/null; then
+  if [[ -n "${queued[$path]:-}" ]]; then
     skipped=$((skipped + 1))
     continue
   fi
+  queued["$path"]=1
   echo "$path" >>"$merge_tmp"
   added=$((added + 1))
 done < "$paths_file"
 rm -f "$paths_file"
 
 if [[ "$DRY" -eq 0 ]]; then
-  sort -u "$merge_tmp" | awk '!seen[$0]++' >"${merge_tmp}.out"
-  mv -f "${merge_tmp}.out" "$LG_TV_QUEUE"
-  chmod 600 "$LG_TV_QUEUE"
+  if [[ -s "$unskip_tmp" ]]; then
+    _drop_unskipped() { awk 'NR == FNR { drop[$0]; next } !($0 in drop)' "$unskip_tmp" -; }
+    queue_filter "$LG_TV_SKIPPED" _drop_unskipped || true
+  fi
+  # Merge into whatever is already queued (hooks may have appended while the scan ran).
+  touch "$LG_TV_QUEUE"
+  _merge_queue() { cat; cat "$merge_tmp"; }
+  queue_filter "$LG_TV_QUEUE" _merge_queue
 fi
-rm -f "$merge_tmp"
+rm -f "$merge_tmp" "$unskip_tmp"
 
 "$LGTV_SCRIPTS/lg-tv-normalize-queue.sh" 2>/dev/null || true
 

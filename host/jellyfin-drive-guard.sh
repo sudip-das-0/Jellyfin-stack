@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Poll jellyfin USB SSD; stop stack when mount bad; restore when healthy.
+# No errexit on purpose: always exit 0 so systemd does not report failures while the SSD is unplugged.
 set -uo pipefail
 GUARD_HOME="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=jellyfin-drive-lib.sh
@@ -8,7 +9,7 @@ source "${GUARD_HOME}/jellyfin-drive-lib.sh"
 export SCRIPTS_ROOT
 LOG="${GUARD_LOG:-${HOME}/arr/jellyfin-drive-guard/drive-guard.log}"
 STATE="${GUARD_STATE:-${HOME}/arr/jellyfin-drive-guard/drive-guard.state}"
-HEAL_STAMP="${GUARD_STATE%.state}/heal.stamp"
+HEAL_STAMP="$(dirname "$STATE")/heal.stamp"
 UUID_DEV="/dev/disk/by-uuid/${JELLYFIN_UUID}"
 HEAL_MIN_INTERVAL="${DRIVE_GUARD_HEAL_INTERVAL_SEC:-30}"
 GUARD_POLL_SEC="${DRIVE_GUARD_POLL_SEC:-5}"
@@ -26,6 +27,7 @@ ssd_present() { [[ -e "$UUID_DEV" ]]; }
 heal_rate_limited() {
   local now last=0
   now=$(date +%s)
+  mkdir -p "$(dirname "$HEAL_STAMP")"
   [[ -f "$HEAL_STAMP" ]] && last=$(cat "$HEAL_STAMP" 2>/dev/null || echo 0)
   (( now - last < HEAL_MIN_INTERVAL )) && return 0
   echo "$now" >"$HEAL_STAMP"
@@ -77,11 +79,6 @@ if [[ "$prev" == "healthy" ]]; then
   log "SSD not ready — waiting for UUID=${JELLYFIN_UUID} (poll every ${GUARD_POLL_SEC}s)"
 fi
 jellyfin_qbit_pause_all
-for c in "${JELLYFIN_GUARD_CONTAINERS[@]}"; do
-  if docker ps -q -f "name=^${c}$" 2>/dev/null | grep -q .; then
-    docker stop "$c" >/dev/null 2>&1 || true
-    log "stopped container $c"
-  fi
-done
+jellyfin_stop_guard_stack log
 write_state waiting
 exit 0

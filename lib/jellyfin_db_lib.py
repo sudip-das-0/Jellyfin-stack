@@ -7,10 +7,12 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sqlite3
 import sys
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Iterator
 
 _SCRIPTS = Path(__file__).resolve().parent
 if str(_SCRIPTS) not in sys.path:
@@ -85,6 +87,20 @@ def connect() -> sqlite3.Connection:
     return conn
 
 
+@contextmanager
+def db() -> Iterator[sqlite3.Connection]:
+    """Open the Jellyfin DB and always close it."""
+    conn = connect()
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+
+def _is_missing_table(exc: sqlite3.OperationalError) -> bool:
+    return "no such table" in str(exc).lower() or "no such column" in str(exc).lower()
+
+
 def is_corrupt_userdata_key(key: str, item_id: str | None = None) -> bool:
     """True for duplicate provider-id rows, not the real watch-progress row."""
     if key in ALLOWED_USERDATA_KEYS:
@@ -142,11 +158,9 @@ def sanitize_userdata(
             to_drop.append((iid, key))
     if not to_drop:
         return 0
-    for iid, key in to_drop:
-        conn.execute(
-            "DELETE FROM UserData WHERE ItemId = ? AND CustomDataKey = ?",
-            (iid, key),
-        )
+    conn.executemany(
+        "DELETE FROM UserData WHERE ItemId = ? AND CustomDataKey = ?", to_drop
+    )
     conn.commit()
     return len(to_drop)
 
@@ -156,18 +170,23 @@ def purge_baseitems(conn: sqlite3.Connection, item_ids: Iterable[str]) -> int:
     if not ids:
         return 0
     ph = ",".join("?" for _ in ids)
-    for table, col in CHILD_TABLES:
-        try:
-            conn.execute(f'DELETE FROM "{table}" WHERE "{col}" IN ({ph})', ids)
-        except sqlite3.OperationalError:
-            pass
-    try:
-        conn.execute(
+    stmts: list[tuple[str, list[str]]] = [
+        (f'DELETE FROM "{table}" WHERE "{col}" IN ({ph})', ids)
+        for table, col in CHILD_TABLES
+    ]
+    stmts.append(
+        (
             f'DELETE FROM "AncestorIds" WHERE "ItemId" IN ({ph}) OR "ParentItemId" IN ({ph})',
             ids + ids,
         )
-    except sqlite3.OperationalError:
-        pass
+    )
+    for sql, params in stmts:
+        try:
+            conn.execute(sql, params)
+        except sqlite3.OperationalError as exc:
+            # Schema differs between Jellyfin versions; anything else is a real error.
+            if not _is_missing_table(exc):
+                raise
     cur = conn.execute(f'DELETE FROM "BaseItems" WHERE "Id" IN ({ph})', ids)
     conn.commit()
     return cur.rowcount
@@ -234,9 +253,12 @@ def finish_delete(
     *,
     item_id: str | None = None,
     path: str | None = None,
-    force_if_still_present: bool = False,
 ) -> dict[str, Any]:
-    """After UI delete: drop bad UserData and purge any leftover movie/episode row."""
+    """After UI delete: drop bad UserData and purge any leftover movie/episode row.
+
+    A row is purged only when its media file is gone and the media mount is healthy,
+    so an upgrade that reuses the same path never loses the new item.
+    """
     result: dict[str, Any] = {
         "sanitized_userdata": 0,
         "purged_ids": [],
@@ -253,15 +275,9 @@ def finish_delete(
         result["sanitized_userdata"] += sanitize_userdata(conn, item_id=iid)
 
     purge: list[str] = []
-    mount_ok = media_library_mount_healthy()
-    for iid in target_ids:
-        if not item_exists(conn, iid):
-            continue
-        missing = media_file_missing(conn, iid)
-        if not mount_ok:
-            continue
-        if missing is True:
-            purge.append(iid)
+    if media_library_mount_healthy():
+        # media_file_missing() is None for unknown ids, so no separate exists check.
+        purge = [iid for iid in target_ids if media_file_missing(conn, iid) is True]
 
     if purge:
         purge_baseitems(conn, purge)
@@ -338,56 +354,82 @@ def prune_orphan_foreign_keys(conn: sqlite3.Connection) -> int:
     return deleted
 
 
+_ID_KEYS = frozenset({"itemid", "id", "item_id"})
+_PATH_KEYS = frozenset(
+    {"path", "itempath", "filepath", "filename", "item_path", "file_path"}
+)
+_EVENT_KEYS = ("NotificationType", "notification_type", "Event", "event")
+_MEDIA_PATH_MARKERS = ("/media/", "/mnt/jellyfin/media/")
+_PATH_IN_TEXT = re.compile(r"(/mnt/jellyfin/media/[^\s\"'<>]+|/media/[^\s\"'<>]+)")
+
+
+def _load_json(body: bytes) -> Any:
+    try:
+        return json.loads(body.decode("utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return None
+
+
+def webhook_event(body: bytes) -> str:
+    """NotificationType / Event name from a Jellyfin Webhook JSON body ('' if absent)."""
+    data = _load_json(body)
+    if not isinstance(data, dict):
+        return ""
+    for key in _EVENT_KEYS:
+        val = data.get(key)
+        if isinstance(val, str):
+            return val
+    return ""
+
+
 def extract_webhook_targets(body: bytes) -> tuple[list[str], list[str]]:
-    """Return (item_ids, paths) from Jellyfin Webhook JSON body."""
+    """Return de-duplicated (item_ids, paths) from a Jellyfin Webhook body.
+
+    Item ids come from JSON id keys; paths come from JSON path keys, falling back to
+    any library-looking path in the raw text (covers non-JSON templates).
+    """
     item_ids: list[str] = []
     paths: list[str] = []
     seen_i: set[str] = set()
     seen_p: set[str] = set()
-    try:
-        data = json.loads(body.decode("utf-8"))
-    except (json.JSONDecodeError, UnicodeDecodeError):
-        return item_ids, paths
 
-    id_keys = frozenset(
-        {
-            "itemid",
-            "id",
-            "item_id",
-        }
-    )
-    path_keys = frozenset(
-        {
-            "path",
-            "itempath",
-            "filepath",
-            "filename",
-            "item_path",
-            "file_path",
-        }
-    )
+    def add_path(v: str) -> None:
+        if v not in seen_p and any(m in v for m in _MEDIA_PATH_MARKERS):
+            seen_p.add(v)
+            paths.append(v)
 
-    stack: list[Any] = [data]
+    data = _load_json(body)
+    stack: list[Any] = [data] if data is not None else []
     while stack:
         obj = stack.pop()
         if isinstance(obj, dict):
             for k, v in obj.items():
                 kl = k.lower()
                 if isinstance(v, str):
-                    if kl in id_keys and len(v) >= 32 and v.count("-") >= 4:
+                    if kl in _ID_KEYS and len(v) >= 32 and v.count("-") >= 4:
                         uid = v.upper()
                         if uid not in seen_i:
                             seen_i.add(uid)
                             item_ids.append(uid)
-                    if kl in path_keys and ("/media/" in v or "/mnt/jellyfin/media/" in v):
-                        if v not in seen_p:
-                            seen_p.add(v)
-                            paths.append(v)
+                    if kl in _PATH_KEYS:
+                        add_path(v)
                 elif isinstance(v, (dict, list)):
                     stack.append(v)
         elif isinstance(obj, list):
             stack.extend(obj)
+
+    for m in _PATH_IN_TEXT.finditer(body.decode("utf-8", errors="replace")):
+        add_path(m.group(1))
     return item_ids, paths
+
+
+def safe_media_path(raw: str) -> str | None:
+    """Return raw if it is a plain absolute library path (no traversal), else None."""
+    if not raw or "\x00" in raw or ".." in Path(raw).parts:
+        return None
+    if not raw.startswith(("/media/", "/data/media/", f"{HOST_ROOT}/media/")):
+        return None
+    return raw
 
 
 def prepare_items_for_delete(conn: sqlite3.Connection, item_ids: Iterable[str]) -> int:

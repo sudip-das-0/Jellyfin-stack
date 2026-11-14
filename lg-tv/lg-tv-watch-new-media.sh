@@ -17,8 +17,8 @@ fi
 
 queue_if_new() {
   local file=$1
-  grep -Fxq "$file" "$BASELINE" 2>/dev/null && return 0
-  echo "$file" >> "$BASELINE"
+  # queue_append_unique fails when the file is already in the baseline.
+  queue_append_unique "$BASELINE" "$file" || return 0
   "$QUEUE_HELPER" "$file"
 }
 
@@ -32,11 +32,10 @@ if command -v inotifywait >/dev/null 2>&1; then
 else
   echo "LG TV new-media watcher (poll every ${POLL_SEC}s; install inotify-tools for instant queue)" >&2
   while true; do
+    # Only files not in the baseline: one sorted diff instead of a grep per file.
     while IFS= read -r file; do
-      case "$file" in
-        *.mkv|*.mp4|*.m2ts|*.ts|*.M2TS|*.TS) queue_if_new "$file" ;;
-      esac
-    done < <(lg_tv_find_videos "$MEDIA" 2>/dev/null || true)
+      queue_if_new "$file"
+    done < <(comm -13 <(sort -u "$BASELINE") <(lg_tv_find_videos "$MEDIA" 2>/dev/null | sort -u) || true)
     sleep "$POLL_SEC"
   done
 fi

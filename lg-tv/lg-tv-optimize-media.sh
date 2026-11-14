@@ -37,7 +37,7 @@ LG_TV_DRI_DRIVER="$LG_TV_VAAPI_DRIVER"
 LOG=$LG_TV_LOG
 SKIPPED=$LG_TV_SKIPPED
 mkdir -p "$(dirname "$LOG")" "$(dirname "$SKIPPED")"
-log() { echo "$(date -Iseconds) $*" | tee -a "$LOG"; }
+log() { lg_tv_log -t "$@"; }
 
 allow_cpu_libx264() {
   [[ "${LG_TV_ALLOW_CPU_FALLBACK:-0}" == 1 ]]
@@ -46,8 +46,7 @@ allow_cpu_libx264() {
 REMUX_IN="${LG_TV_REMUX_INPUT_FLAGS:--fflags +genpts+igndts -err_detect ignore_err}"
 
 mark_permanent_skip() {
-  touch "$SKIPPED"
-  grep -Fxq "$src" "$SKIPPED" 2>/dev/null || echo "$src" >> "$SKIPPED"
+  queue_append_unique "$SKIPPED" "$src" || true
   "${LGTV_SCRIPTS}/lg-tv-purge-queue-path.sh" "$src" 2>/dev/null || true
 }
 

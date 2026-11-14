@@ -3,24 +3,15 @@
 set -euo pipefail
 # shellcheck source=stack-paths.sh
 source "$(dirname "$0")/../lib/stack-paths.sh"
-COMPOSE_DIR=$SCRIPTS_ROOT
 cmd="${1:-help}"
 shift || true
-
-docker_cmd() {
-  if docker info &>/dev/null; then
-    docker compose "$@"
-  else
-    sudo docker compose "$@"
-  fi
-}
 
 run_compose() {
   if ! mountpoint -q "$JELLYFIN_MNT"; then
     echo "jellyfin: $JELLYFIN_MNT is not mounted — plug in the jellyfin SSD" >&2
     exit 1
   fi
-  (cd "$COMPOSE_DIR" && docker_cmd "$@")
+  stack_compose "$@"
 }
 
 case "$cmd" in

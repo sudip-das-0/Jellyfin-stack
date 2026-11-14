@@ -15,7 +15,6 @@ on torrent-stall-recovery.service (43200 = 12 h).
 """
 from __future__ import annotations
 
-import json
 import os
 import sys
 import time
@@ -32,6 +31,7 @@ from arr_common import (
     STALL_RECOVERY_STATE_PATH,
     STALL_SECONDS_DEFAULT,
     jellyfin_volume_ready,
+    load_json_state,
     qbit_remove_client_only,
     append_recovery_log,
     arr_json,
@@ -41,10 +41,10 @@ from arr_common import (
     norm_qbit_hash,
     qbit_torrents,
     read_api_key,
+    save_json_state,
 )
 
 STALL_SECONDS = int(os.environ.get("STALL_SECONDS", str(STALL_SECONDS_DEFAULT)))
-LOG_DIR = STALL_LOG_DIR
 STATE_PATH = STALL_RECOVERY_STATE_PATH
 
 
@@ -53,14 +53,16 @@ def log(msg: str) -> None:
 
 
 def load_state() -> dict:
-    if STATE_PATH.exists():
-        return json.loads(STATE_PATH.read_text(encoding="utf-8"))
-    return {"jobs": {}}
+    """Stall-tracking state; a corrupt file is moved aside (state.json.corrupt) and reset."""
+    state = load_json_state(STATE_PATH, lambda: {"jobs": {}})
+    if not isinstance(state, dict):
+        return {"jobs": {}}
+    state.setdefault("jobs", {})
+    return state
 
 
 def save_state(state: dict) -> None:
-    LOG_DIR.mkdir(parents=True, exist_ok=True)
-    STATE_PATH.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    save_json_state(STATE_PATH, state)
 
 
 def torrent_by_hash(torrents: list[dict]) -> dict[str, dict]:
