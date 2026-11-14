@@ -72,6 +72,18 @@ probe_vcodec() {
     -show_entries stream=codec_name -of csv=p=0 "$cin" 2>/dev/null | head -1 | tr -d '[:space:]' || true
 }
 
+# A service stop/restart (SIGTERM) must not lose the popped-but-unfinished item:
+# put it back at the front. Bash runs this once the killed encode child has exited.
+CURRENT_PATH=""
+requeue_inflight() {
+  if [[ -n "$CURRENT_PATH" ]]; then
+    queue_push_front "$QUEUE" "$CURRENT_PATH"
+    log "interrupted — re-queued at front: $CURRENT_PATH"
+  fi
+  exit 143
+}
+trap requeue_inflight TERM INT
+
 # Encode the head of the queue. Returns 1 when the queue is empty.
 process_one() {
   local path prior_failures vcodec_hint
@@ -80,6 +92,7 @@ process_one() {
   queue_filter "$QUEUE" lg_tv_normalize_stream || true
   path=$(queue_pop_front "$QUEUE")
   [[ -n "$path" ]] || return 1
+  CURRENT_PATH=$path
 
   prior_failures=$(retry_count "$path")
   if [[ "$prior_failures" -gt 0 ]]; then
@@ -103,6 +116,7 @@ process_one() {
   else
     on_failure "$path"
   fi
+  CURRENT_PATH=""
   return 0
 }
 
