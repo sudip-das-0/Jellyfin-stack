@@ -17,7 +17,6 @@ from arr_common import (
     RADARR_CONFIG,
     RADARR_URL,
     SONARR_CONFIG,
-    SONARR_URL,
     STALL_LOG_DIR,
     append_recovery_log,
     arr_json,

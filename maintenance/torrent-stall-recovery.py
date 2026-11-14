@@ -27,7 +27,6 @@ from arr_common import (
     RADARR_URL,
     SONARR_CONFIG,
     SONARR_URL,
-    STALL_LOG_DIR,
     STALL_RECOVERY_STATE_PATH,
     STALL_SECONDS_DEFAULT,
     jellyfin_volume_ready,

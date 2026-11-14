@@ -9,12 +9,12 @@ bin/
 *.log.*
 *.pid
 *.lock
+*.flock
 *.queue
 *.tsv
 
 # Python / editor
 __pycache__/
-scripts/
 *.py[cod]
 .env
 .env.*

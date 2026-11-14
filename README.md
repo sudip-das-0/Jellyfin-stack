@@ -25,8 +25,8 @@ On this PC, `http://127.0.0.1:<port>` works too.
 | Path | Role |
 |------|------|
 | `docker-compose.yml` | Jellyfin, Seerr, Sonarr, Radarr, Bazarr, Prowlarr, qBittorrent |
-| `lib/` | Shared paths and helpers (`stack-paths.sh`, `arr_common.py`) |
-| `hooks/` | Sonarr/Radarr CustomScripts (mounted as `/data/scripts`) |
+| `lib/` | Shared paths and helpers: `stack-paths.sh` (shell), `arr_common.py` (*arr/qBit/state JSON), `jellyfin_api.py` (Jellyfin REST + API key), `jellyfin_db_lib.py` (sqlite), `arr_notifications.py` |
+| `hooks/` | Sonarr/Radarr CustomScripts (mounted as `/data/scripts`); `hook-lib.sh` holds the flock queue helpers (`queue_append_unique`, `queue_drain`, `queue_filter`, …) shared with host scripts |
 | `maintenance/` | 30‑min download pipeline (dedupe, stall, import, cleanup) |
 | `lg-tv/` | LG WebOS remux/transcode queue (`lg-tv-queue-unoptimized.sh`, export/promote helpers) |
 | `jellyfin/` | DB delete-guard, episode images, webhook listener |

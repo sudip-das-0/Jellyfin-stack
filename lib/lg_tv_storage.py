@@ -2,13 +2,11 @@
 """Storage targets for LG TV optimize (GiB/hour vs file size + duration)."""
 from __future__ import annotations
 
-import importlib.util
 import json
 import os
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from pathlib import Path
 
 from arr_common import MEDIA_ROOT as _MEDIA_ROOT, load_media_lang_policy
 
