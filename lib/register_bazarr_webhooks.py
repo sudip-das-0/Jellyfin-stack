@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Register Sonarr/Radarr webhook notifications → Bazarr (import/upgrade)."""
+"""Register Sonarr/Radarr webhook notifications -> Bazarr (import/upgrade)."""
 from __future__ import annotations
 
 import sys
@@ -11,10 +11,10 @@ from arr_common import (  # noqa: E402
     RADARR_URL,
     SONARR_CONFIG,
     SONARR_URL,
-    arr_json,
     read_api_key,
     read_bazarr_api_key,
 )
+from arr_notifications import event_flags, upsert_notification  # noqa: E402
 
 
 def upsert_webhook(
@@ -25,26 +25,11 @@ def upsert_webhook(
     url: str,
     bazarr_key: str,
 ) -> None:
-    items = arr_json(f"{base_url}/api/v3/notification", api_key)
-    if not isinstance(items, list):
-        raise RuntimeError(f"Unexpected notification list from {base_url}")
-    existing = next((n for n in items if n.get("name") == name), None)
     body: dict = {
         "name": name,
         "implementation": "Webhook",
         "configContract": "WebhookSettings",
-        "onGrab": False,
-        "onDownload": True,
-        "onUpgrade": True,
-        "onImportComplete": False,
-        "onRename": False,
-        "onSeriesAdd": False,
-        "onSeriesDelete": False,
-        "onEpisodeFileDelete": False,
-        "onHealthIssue": False,
-        "onApplicationUpdate": False,
-        "onMovieDelete": False,
-        "onMovieFileDelete": False,
+        **event_flags("onDownload", "onUpgrade"),
         "includeHealthWarnings": False,
         "tags": [],
         "fields": [
@@ -58,38 +43,22 @@ def upsert_webhook(
             },
         ],
     }
-    if existing:
-        body = {**existing, **body}
-        arr_json(
-            f"{base_url}/api/v3/notification/{existing['id']}",
-            api_key,
-            method="PUT",
-            body=body,
-        )
-        print(f"Updated {name} id={existing['id']}")
-    else:
-        arr_json(f"{base_url}/api/v3/notification", api_key, method="POST", body=body)
-        print(f"Created {name}")
+    upsert_notification(base_url, api_key, body, merge_existing=True)
 
 
 def main() -> int:
-    son = read_api_key(SONARR_CONFIG)
-    rad = read_api_key(RADARR_CONFIG)
     baz = read_bazarr_api_key()
-    upsert_webhook(
-        SONARR_URL,
-        son,
-        name="Bazarr subtitles (Sonarr)",
-        url="http://bazarr:6767/api/webhooks/sonarr",
-        bazarr_key=baz,
-    )
-    upsert_webhook(
-        RADARR_URL,
-        rad,
-        name="Bazarr subtitles (Radarr)",
-        url="http://bazarr:6767/api/webhooks/radarr",
-        bazarr_key=baz,
-    )
+    for base, config, label, app in (
+        (SONARR_URL, SONARR_CONFIG, "Sonarr", "sonarr"),
+        (RADARR_URL, RADARR_CONFIG, "Radarr", "radarr"),
+    ):
+        upsert_webhook(
+            base,
+            read_api_key(config),
+            name=f"Bazarr subtitles ({label})",
+            url=f"http://bazarr:6767/api/webhooks/{app}",
+            bazarr_key=baz,
+        )
     return 0
 
 

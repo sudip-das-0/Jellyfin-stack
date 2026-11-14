@@ -254,12 +254,24 @@ def is_english_release_subtitle_name(name: str) -> bool:
     if "eng" in lower or ".en." in lower:
         return True
     # Episode-named subs without a language tag (e.g. Vyndros BluRay): English by policy.
-    if _EPISODE_IN_NAME.search(name) and lower.endswith(".srt"):
+    if EPISODE_IN_NAME.search(name) and lower.endswith(".srt"):
         return True
     return False
 
 
-_EPISODE_IN_NAME = re.compile(r"(?i)(?<![0-9])s(\d{1,2})e(\d{1,2})(?![0-9])")
+# SxxExx in a file name (shared with sidecar_release.py via episode_code()).
+EPISODE_IN_NAME = re.compile(r"(?i)(?<![0-9])s(\d{1,2})e(\d{1,2})(?![0-9])")
+
+
+def episode_code(text: str) -> tuple[int, int] | None:
+    """(season, episode) from the first SxxExx in text, else None."""
+    m = EPISODE_IN_NAME.search(text)
+    return (int(m.group(1)), int(m.group(2))) if m else None
+
+
+def subtitle_title_is_avoid(title: str) -> bool:
+    """True for forced/SDH/commentary-style subtitle track titles that should rank lower."""
+    return bool(_SUBTITLE_TITLE_AVOID.search(title))
 
 
 def is_english_sidecar_variant(video_stem: str, sidecar_path: Path) -> bool:

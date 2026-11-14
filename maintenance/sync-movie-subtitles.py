@@ -25,13 +25,14 @@ from arr_common import (
     jellyfin_volume_ready,
     load_json_state,
     save_json_state,
+    VIDEO_EXTENSIONS,
 )
 
 MEDIA_MOVIES = MEDIA_ROOT / "movies"
 LOG_DIR = LOG_ROOT / "subs-sync"
 STATE_PATH = LOG_DIR / "state.json"
 VENV_FFS = SCRIPTS_ROOT / ".venv-subsync/bin/ffs"
-VIDEO_EXT = {".mkv", ".mp4", ".m4v", ".avi"}
+VIDEO_EXT = VIDEO_EXTENSIONS
 SUBSYNC_TIMEOUT_SEC = int(os.environ.get("SUBSYNC_TIMEOUT_SEC", "1800"))
 LIBRARY_DIRS = ("movies", "series", "anime")
 FOREIGN_SRT = re.compile(

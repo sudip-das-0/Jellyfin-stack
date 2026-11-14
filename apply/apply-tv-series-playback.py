@@ -2,16 +2,12 @@
 """Jellyfin: Netflix-style next episode for series (TV clients), no playback/latency changes."""
 from __future__ import annotations
 
-import json
 import os
-import sqlite3
 import sys
-import urllib.error
-import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
-from arr_common import JELLYFIN_DB, JELLYFIN_URL  # noqa: E402
+from jellyfin_api import JellyfinAPIError, jellyfin_json  # noqa: E402
 
 API_KEY_NAME = os.environ.get("JELLYFIN_API_KEY_NAME", "arr-stack")
 SERIES_VIEW = "5ddaa59a73205234890fdcfc683e14ed"
@@ -38,39 +34,18 @@ WEB_HOME_PREFS = {
 }
 
 
-def api(method: str, path: str, token: str, body: dict | None = None) -> dict | None:
-    data = None if body is None else json.dumps(body).encode()
-    req = urllib.request.Request(
-        f"{JELLYFIN_URL}{path}",
-        data=data,
-        method=method,
-        headers={
-            "Authorization": f'MediaBrowser Token="{token}"',
-            "Content-Type": "application/json",
-        },
-    )
+def api(method: str, path: str, body: dict | None = None) -> dict | list | None:
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            raw = resp.read()
-            if not raw:
-                return None
-            return json.loads(raw)
-    except urllib.error.HTTPError as e:
-        detail = e.read().decode(errors="replace")
-        raise SystemExit(f"Jellyfin API {method} {path} failed: {e.code} {detail}") from e
+        result = jellyfin_json(path, method=method, body=body, key_name=API_KEY_NAME, timeout=30)
+    except JellyfinAPIError as e:
+        raise SystemExit(f"Jellyfin API {method} {path} failed: {e.code} {e.detail}") from e
+    except RuntimeError as e:  # missing API key
+        raise SystemExit(str(e)) from e
+    return result  # type: ignore[return-value]
 
 
 def main() -> None:
-    db = os.environ.get("JELLYFIN_DB", str(JELLYFIN_DB))
-    con = sqlite3.connect(db)
-    row = con.execute(
-        "SELECT AccessToken FROM ApiKeys WHERE Name = ? LIMIT 1", (API_KEY_NAME,)
-    ).fetchone()
-    if not row:
-        raise SystemExit(f"No Jellyfin API key named {API_KEY_NAME!r} in {db}")
-    token = row[0]
-
-    users = api("GET", "/Users", token)
+    users = api("GET", "/Users")
     if not users:
         raise SystemExit("No Jellyfin users returned")
 
@@ -80,7 +55,7 @@ def main() -> None:
         if user.get("Policy", {}).get("EnableMediaPlayback") is False:
             continue
 
-        full = api("GET", f"/Users/{uid}", token)
+        full = api("GET", f"/Users/{uid}")
         cfg = full.setdefault("Configuration", {})
         cfg["EnableNextEpisodeAutoPlay"] = True
         views = [v.lower() for v in cfg.get("OrderedViews") or []]
@@ -92,7 +67,7 @@ def main() -> None:
             if vid not in ordered:
                 ordered.append(vid)
         cfg["OrderedViews"] = ordered
-        api("POST", f"/Users/{uid}", token, full)
+        api("POST", f"/Users/{uid}", full)
         print(f"user {name}: EnableNextEpisodeAutoPlay, Series before Movies")
 
         for client in TV_CLIENTS:
@@ -105,7 +80,6 @@ def main() -> None:
             api(
                 "POST",
                 f"/DisplayPreferences/usersettings?userId={uid}&client={client}",
-                token,
                 payload,
             )
             print(f"  client {client}: next-episode overlay enabled")

@@ -2,10 +2,8 @@
 """Enforce: remove completed torrents from qBittorrent; do not seed."""
 from __future__ import annotations
 
-import json
 import sys
 import urllib.error
-import urllib.parse
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
@@ -15,7 +13,7 @@ from arr_common import (
     SONARR_CONFIG,
     SONARR_URL,
     arr_json,
-    qbit_json,
+    qbit_set_preferences,
     read_api_key,
 )
 
@@ -60,8 +58,7 @@ def patch_qbit_no_seed() -> None:
         "disk_cache": 64,
         "disk_cache_ttl": 30,
     }
-    body = urllib.parse.urlencode({"json": json.dumps(patch)}).encode()
-    qbit_json("/api/v2/app/setPreferences", method="POST", data=body)
+    qbit_set_preferences(patch)
 
 
 def main() -> int:

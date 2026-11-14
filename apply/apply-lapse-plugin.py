@@ -4,17 +4,17 @@ from __future__ import annotations
 
 import json
 import os
-import sqlite3
+import shutil
 import subprocess
 import sys
 import time
-import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
-from arr_common import BAZARR_CONFIG, JELLYFIN_CONFIG_ROOT, JELLYFIN_DB, JELLYFIN_URL  # noqa: E402
+from arr_common import BAZARR_CONFIG, JELLYFIN_CONFIG_ROOT  # noqa: E402
+from jellyfin_api import jellyfin_json, wait_ready  # noqa: E402
 
 PLUGIN_GUID = "486090e1-ca92-46e1-8549-9f6bb914a1d0"
 PLUGIN_VERSION = "2.1.4.0"
@@ -25,44 +25,8 @@ SYSTEM_XML = JELLYFIN_CONFIG_ROOT / "config" / "system.xml"
 DLL_URL = "https://github.com/rs-jensen/lapse-jellyfin-plugin/releases/download/v2.1.4/lapse-jellyfin-plugin-v2.1.4.zip"
 
 
-def jellyfin_token() -> str:
-    con = sqlite3.connect(str(JELLYFIN_DB))
-    try:
-        row = con.execute("SELECT AccessToken FROM ApiKeys LIMIT 1").fetchone()
-    finally:
-        con.close()
-    if not row or not row[0]:
-        raise RuntimeError("No Jellyfin API key")
-    return str(row[0])
-
-
-def jf(path: str, *, method: str = "GET", body: object | None = None, timeout: int = 120) -> object:
-    data = None
-    headers = {"Authorization": f'MediaBrowser Token="{jellyfin_token()}"'}
-    if body is not None:
-        data = json.dumps(body).encode()
-        headers["Content-Type"] = "application/json"
-    req = urllib.request.Request(f"{JELLYFIN_URL}{path}", data=data, method=method, headers=headers)
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            raw = resp.read()
-            if resp.status in (202, 204) and not raw:
-                return {"status": resp.status}
-            return json.loads(raw.decode()) if raw else {"status": resp.status}
-    except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", "replace")[:400]
-        raise RuntimeError(f"{method} {path} -> {exc.code}: {detail}") from exc
-
-
-def wait_jellyfin(seconds: int = 90) -> None:
-    deadline = time.time() + seconds
-    while time.time() < deadline:
-        try:
-            urllib.request.urlopen(f"{JELLYFIN_URL}/System/Info/Public", timeout=3).read()
-            return
-        except Exception:  # noqa: BLE001
-            time.sleep(2)
-    raise RuntimeError("Jellyfin did not come back on :8096")
+jf = jellyfin_json
+wait_jellyfin = wait_ready
 
 
 def docker_restart_jellyfin() -> None:
@@ -79,7 +43,8 @@ def ensure_plugin_files() -> None:
     dll = PLUGIN_DIR / "Jellyfin.Plugin.Lapse.dll"
     if not dll.is_file():
         zip_path = Path("/tmp/lapse-jellyfin-plugin.zip")
-        urllib.request.urlretrieve(DLL_URL, zip_path)
+        with urllib.request.urlopen(DLL_URL, timeout=120) as resp, zip_path.open("wb") as out:
+            shutil.copyfileobj(resp, out)
         subprocess.run(["unzip", "-o", str(zip_path), "-d", str(PLUGIN_DIR)], check=True)
     meta = {
         "category": "General",

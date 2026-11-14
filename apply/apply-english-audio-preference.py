@@ -6,6 +6,7 @@ import json
 import re
 import sqlite3
 import sys
+from contextlib import closing
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
@@ -37,13 +38,12 @@ def apply_bazarr_subtitle_profile(mlp) -> None:
         }
         for i, c in enumerate(mlp.BAZARR_SUBTITLE_LANGS)
     ]
-    conn = sqlite3.connect(BAZARR_DB)
-    conn.execute(
-        "UPDATE table_languages_profiles SET name=?, items=? WHERE profileId=1",
-        ("English subtitles", json.dumps(items)),
-    )
-    conn.commit()
-    conn.close()
+    with closing(sqlite3.connect(BAZARR_DB, timeout=30)) as conn:
+        conn.execute(
+            "UPDATE table_languages_profiles SET name=?, items=? WHERE profileId=1",
+            ("English subtitles", json.dumps(items)),
+        )
+        conn.commit()
     print("Bazarr subtitle profile:", list(mlp.BAZARR_SUBTITLE_LANGS))
     print("Audio allow-list (grabs/remux):", list(mlp.JELLYFIN_AUDIO_LANGS))
 

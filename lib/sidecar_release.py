@@ -9,16 +9,9 @@ from arr_common import load_media_lang_policy
 
 mlp = load_media_lang_policy()
 
-_EPISODE = re.compile(
-    r"(?i)(?<![0-9])s(\d{1,2})e(\d{1,2})(?![0-9])",
-)
-
-
 def episode_code_label(text: str) -> str | None:
-    m = _EPISODE.search(text)
-    if not m:
-        return None
-    return f"S{int(m.group(1)):02d}E{int(m.group(2)):02d}"
+    code = mlp.episode_code(text)
+    return f"S{code[0]:02d}E{code[1]:02d}" if code else None
 
 
 _LIBRARY_ROOTS = ("series", "anime", "movies", "other")
@@ -94,13 +87,9 @@ def score_release_candidate(video_stem: str, video_ep: str | None, srt: Path) ->
 
     score = mlp.english_sidecar_pick_score(name)
     score += _stem_overlap_score(video_stem, srt.stem)
-    if _SUBTITLE_TITLE_AVOID(name):
+    if mlp.subtitle_title_is_avoid(name):
         score += 25
     return score
-
-
-def _SUBTITLE_TITLE_AVOID(name: str) -> bool:
-    return bool(mlp._SUBTITLE_TITLE_AVOID.search(name))
 
 
 def iter_release_srts(root: Path):

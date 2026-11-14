@@ -7,11 +7,12 @@ import sqlite3
 import sys
 import urllib.error
 import urllib.parse
-import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
-from arr_common import JELLYFIN_DB, JELLYFIN_URL, MEDIA_ROOT, STALL_LOG_DIR, echo_script_log  # noqa: E402
+from arr_common import MEDIA_ROOT, STALL_LOG_DIR, echo_script_log  # noqa: E402
+from jellyfin_api import JellyfinAPIError, jellyfin_request  # noqa: E402
+from jellyfin_db_lib import db  # noqa: E402
 
 LOG = STALL_LOG_DIR / "jellyfin-episode-images.log"
 EPISODE_TYPE = "MediaBrowser.Controller.Entities.TV.Episode"
@@ -19,32 +20,6 @@ EPISODE_TYPE = "MediaBrowser.Controller.Entities.TV.Episode"
 
 def log(msg: str) -> None:
     echo_script_log(LOG, msg.rstrip())
-
-
-def api_key(name: str | None = None) -> str:
-    conn = sqlite3.connect(JELLYFIN_DB)
-    if name:
-        row = conn.execute(
-            "SELECT AccessToken FROM ApiKeys WHERE Name=? LIMIT 1", (name,)
-        ).fetchone()
-    else:
-        row = conn.execute(
-            "SELECT AccessToken FROM ApiKeys ORDER BY DateCreated DESC LIMIT 1"
-        ).fetchone()
-    conn.close()
-    if not row or not row[0]:
-        raise RuntimeError("No Jellyfin API key in jellyfin.db")
-    return row[0]
-
-
-def jellyfin_post(path: str, key: str, *, timeout: int = 120) -> int:
-    req = urllib.request.Request(
-        f"{JELLYFIN_URL}{path}",
-        method="POST",
-        headers={"Authorization": f'MediaBrowser Token="{key}"'},
-    )
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return resp.status
 
 
 def host_path_to_container(path: str) -> str:
@@ -59,10 +34,9 @@ def host_path_to_container(path: str) -> str:
     raise ValueError(f"Not a library media path: {path}")
 
 
-def series_ids_missing_primary(*, limit_series: int | None = None) -> list[str]:
-    conn = sqlite3.connect(JELLYFIN_DB)
+def series_ids_missing_primary(conn: sqlite3.Connection, *, limit_series: int | None = None) -> list[str]:
     rows = conn.execute(
-        f"""
+        """
         SELECT DISTINCT e.SeriesId
         FROM BaseItems e
         LEFT JOIN BaseItemImageInfos b ON b.ItemId = e.Id AND b.ImageType = 0
@@ -71,24 +45,19 @@ def series_ids_missing_primary(*, limit_series: int | None = None) -> list[str]:
         """,
         (EPISODE_TYPE,),
     ).fetchall()
-    conn.close()
     ids = [r[0] for r in rows if r[0]]
-    if limit_series is not None:
-        ids = ids[:limit_series]
-    return ids
+    return ids if limit_series is None else ids[:limit_series]
 
 
-def series_id_for_media_path(container_path: str) -> str | None:
-    conn = sqlite3.connect(JELLYFIN_DB)
+def series_id_for_media_path(conn: sqlite3.Connection, container_path: str) -> str | None:
     row = conn.execute(
         "SELECT SeriesId FROM BaseItems WHERE Type=? AND Path=? LIMIT 1",
         (EPISODE_TYPE, container_path),
     ).fetchone()
-    conn.close()
     return row[0] if row else None
 
 
-def refresh_series(series_id: str, key: str) -> None:
+def refresh_series(series_id: str, key_name: str) -> None:
     q = urllib.parse.urlencode(
         {
             "Recursive": "true",
@@ -97,7 +66,9 @@ def refresh_series(series_id: str, key: str) -> None:
             "ReplaceAllImages": "false",
         }
     )
-    code = jellyfin_post(f"/Items/{series_id}/Refresh?{q}", key)
+    code, _ = jellyfin_request(
+        f"/Items/{series_id}/Refresh?{q}", method="POST", key_name=key_name, timeout=120
+    )
     log(f"refresh series {series_id}: HTTP {code}")
 
 
@@ -135,23 +106,24 @@ def main() -> int:
         print("Use --all-missing and/or --path", file=sys.stderr)
         return 2
 
-    key = api_key(args.api_key_name)
     series_ids: set[str] = set()
 
-    if args.all_missing:
-        series_ids.update(series_ids_missing_primary(limit_series=args.limit_series))
+    # One read-only connection for every lookup in this run.
+    with db() as conn:
+        if args.all_missing:
+            series_ids.update(series_ids_missing_primary(conn, limit_series=args.limit_series))
 
-    for raw in args.paths or []:
-        try:
-            cpath = host_path_to_container(raw)
-        except ValueError as e:
-            log(f"skip path: {e}")
-            continue
-        sid = series_id_for_media_path(cpath)
-        if sid:
-            series_ids.add(sid)
-        else:
-            log(f"no Jellyfin episode for path {cpath}")
+        for raw in args.paths or []:
+            try:
+                cpath = host_path_to_container(raw)
+            except ValueError as e:
+                log(f"skip path: {e}")
+                continue
+            sid = series_id_for_media_path(conn, cpath)
+            if sid:
+                series_ids.add(sid)
+            else:
+                log(f"no Jellyfin episode for path {cpath}")
 
     if not series_ids:
         log("nothing to refresh")
@@ -159,8 +131,8 @@ def main() -> int:
 
     for sid in sorted(series_ids):
         try:
-            refresh_series(sid, key)
-        except urllib.error.URLError as e:
+            refresh_series(sid, args.api_key_name)
+        except (urllib.error.URLError, JellyfinAPIError, RuntimeError) as e:
             log(f"ERROR refresh {sid}: {e}")
             return 1
     log(f"queued image refresh for {len(series_ids)} series")

@@ -6,11 +6,18 @@ import json
 import os
 import subprocess
 import sys
-import urllib.parse
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
-from arr_common import LOG_ROOT, SCRIPTS_ROOT, echo_script_log, qbit_json
+from arr_common import (
+    LOG_ROOT,
+    SCRIPTS_ROOT,
+    echo_script_log,
+    load_json_state,
+    qbit_json,
+    qbit_set_preferences,
+    save_json_state,
+)
 
 CONFIG_PATH = SCRIPTS_ROOT / "config/qbit-network-profiles.json"
 STATE_PATH = LOG_ROOT / "qbit-network-profile.state.json"
@@ -59,17 +66,12 @@ def profile_settings(cfg: dict, profile_name: str) -> dict:
 
 
 def read_state() -> dict:
-    if not STATE_PATH.is_file():
-        return {}
-    try:
-        return json.loads(STATE_PATH.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        return {}
+    state = load_json_state(STATE_PATH, dict)
+    return state if isinstance(state, dict) else {}
 
 
 def write_state(state: dict) -> None:
-    STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    STATE_PATH.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+    save_json_state(STATE_PATH, state)
 
 
 def qbit_preferences() -> dict:
@@ -77,11 +79,6 @@ def qbit_preferences() -> dict:
     if not isinstance(prefs, dict):
         raise RuntimeError("Unexpected qBittorrent preferences response")
     return prefs
-
-
-def apply_settings(settings: dict) -> None:
-    body = urllib.parse.urlencode({"json": json.dumps(settings)}).encode()
-    qbit_json("/api/v2/app/setPreferences", method="POST", data=body)
 
 
 def needs_update(prefs: dict, settings: dict) -> bool:
@@ -98,18 +95,17 @@ def main() -> int:
     settings = profile_settings(cfg, profile_name)
 
     state = read_state()
+    prefs = qbit_preferences()
     if (
         state.get("profile") == profile_name
         and state.get("ssid") == ssid
         and not os.environ.get("QBIT_NETWORK_PROFILE_FORCE")
+        and not needs_update(prefs, settings)
     ):
-        prefs = qbit_preferences()
-        if not needs_update(prefs, settings):
-            return 0
+        return 0
 
-    prefs = qbit_preferences()
     if needs_update(prefs, settings):
-        apply_settings(settings)
+        qbit_set_preferences(settings)
         log(
             f"profile={profile_name} ssid={ssid!r} "
             f"dl_limit={settings['dl_limit']} "

@@ -11,12 +11,21 @@ import time
 import urllib.parse
 from pathlib import Path
 
-from arr_common import MEDIA_ROOT, SCRIPTS_ROOT, SONARR_URL, TEMP_DIR, TORRENTS_ROOT, arr_json, video_container_magic_ok
+from arr_common import (
+    MEDIA_ROOT,
+    SCRIPTS_ROOT,
+    SONARR_URL,
+    TEMP_DIR,
+    TORRENTS_ROOT,
+    VIDEO_EXTENSIONS,
+    arr_json,
+    video_container_magic_ok,
+)
 
 TORRENTS = TORRENTS_ROOT
 MEDIA = MEDIA_ROOT
 STAGING = TORRENTS / ".reconcile-staging"
-VIDEO_EXT = {".mkv", ".mp4", ".m4v", ".avi", ".wmv", ".ts"}
+VIDEO_EXT = VIDEO_EXTENSIONS  # kept for reconcile-torrents-library imports
 EP_RE = re.compile(r"[Ss](\d{1,2})[Ee](\d{1,2})")
 # [Group] Title - 123 [1080p] — fansub absolute episode
 ABS_FANSUB = re.compile(r"\[[^\]]+\]\s*(.+?)\s*-\s*(\d{2,4})\s*\[", re.I)
