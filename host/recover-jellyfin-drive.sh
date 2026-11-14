@@ -1,45 +1,27 @@
 #!/usr/bin/env bash
-# Purpose: Remount jellyfin SSD, restart stack, refresh *arr/qBit, optional Jellyfin DB guard.
-# Runs: manual after unplug | RECOVER_SKIP_JELLYFIN=1 to skip jellyfin container restart
+# Manual / guard: ensure SSD mount, restart stack, refresh *arr + qBit.
+# RECOVER_SKIP_JELLYFIN=1 — skip jellyfin container + DB guard
 set -euo pipefail
-# shellcheck source=stack-paths.sh
-source "$(dirname "$0")/../lib/stack-paths.sh"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=jellyfin-drive-lib.sh
+source "${SCRIPT_DIR}/jellyfin-drive-lib.sh"
 
 log() { echo "$(date -Iseconds) [recover-jellyfin-drive] $*"; }
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-
-if ! mountpoint -q "$JELLYFIN_MNT"; then
-  log "mounting UUID=$JELLYFIN_UUID at $JELLYFIN_MNT"
-  sudo mount "UUID=$JELLYFIN_UUID" "$JELLYFIN_MNT"
-elif ! test -r "$TORRENTS_ROOT" || ! docker exec qbittorrent test -r /data/torrents 2>/dev/null; then
-  log "remounting $JELLYFIN_MNT (stale or unreadable bind target)"
-  sudo umount -l "$JELLYFIN_MNT" 2>/dev/null || true
-  sudo mount "UUID=$JELLYFIN_UUID" "$JELLYFIN_MNT"
-fi
-
-if ! mountpoint -q "$JELLYFIN_MNT"; then
-  log "ERROR: $JELLYFIN_MNT is not a mount point"
+if ! jellyfin_prepare_volume; then
+  log "ERROR: volume not ready (run: sudo ${HOST_DIR}/install-jellyfin-mount-sudo.sh)"
   exit 1
 fi
 
-"$SCRIPT_DIR/ensure-jellyfin-media-mount.sh" || exit 1
-
-restart_targets=(qbittorrent sonarr radarr prowlarr bazarr jellyseerr)
-if [[ "${RECOVER_SKIP_JELLYFIN:-0}" != "1" ]]; then
-  restart_targets+=(jellyfin)
-fi
-log "restarting Docker stack (bind mounts under $JELLYFIN_MNT): ${restart_targets[*]}"
-docker restart "${restart_targets[@]}"
+skip_jf=$([[ "${RECOVER_SKIP_JELLYFIN:-0}" == "1" ]] && echo 1 || echo 0)
+log "restarting stack under ${JELLYFIN_MNT}"
+jellyfin_restart_stack "$skip_jf"
 
 log "resuming errored qBit jobs (if any)"
 python3 <<PY
-import sys
-from pathlib import Path
+import sys, urllib.parse
 sys.path.insert(0, "${SCRIPTS_ROOT}/lib")
 from arr_common import qbit_json
-import urllib.parse
-
 info = qbit_json("/api/v2/torrents/info")
 if not isinstance(info, list):
     raise SystemExit("qBit API unexpected response")
@@ -65,8 +47,8 @@ for app in sonarr radarr; do
     -d '{"name":"RefreshMonitoredDownloads"}' "http://127.0.0.1:${port}/api/v3/command" >/dev/null || true
 done
 
-if [[ "${RECOVER_SKIP_JELLYFIN:-0}" != "1" ]] && [[ -x "${JF_SCRIPTS}/jellyfin-delete-guard.py" ]]; then
+if [[ "$skip_jf" == "0" && -x "${JF_SCRIPTS}/jellyfin-delete-guard.py" ]]; then
   python3 "${JF_SCRIPTS}/jellyfin-delete-guard.py" --sanitize-all --purge-ghosts --ghost-limit 50 || true
 fi
 
-log "done — run download-maintenance.sh if queue rows still show missing files"
+log "done"

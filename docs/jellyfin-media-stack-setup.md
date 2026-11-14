@@ -11,7 +11,7 @@ LAN IP: **192.168.0.175** (pinned on Wi‑Fi `Sonai 1`; DHCP may also show `192.
 |-----------|-------------|
 | **Docker** + **Docker Compose** | All media services in containers |
 | **Jellyfin** | Media server (host network, **Intel QSV**) — **v12.1** (`jellyfin/jellyfin:latest`) |
-| **Seerr** (formerly Jellyseerr) | Request movies/TV/anime — **v3.5.0** (`seerr/seerr:v3.5.0`) |
+| **Seerr** (formerly Jellyseerr) | Request movies/TV/anime — **v3.5.2** (`seerr/seerr:v3.5.2`) |
 | **Prowlarr** | Indexers → Radarr/Sonarr |
 | **Radarr** | Movies |
 | **Sonarr** | TV + anime (two root folders) |

@@ -1,149 +1,87 @@
 #!/usr/bin/env bash
-# Poll for jellyfin USB SSD; pause stack while absent. Quiet unless state changes.
+# Poll jellyfin USB SSD; stop stack when mount bad; restore when healthy.
 set -uo pipefail
 GUARD_HOME="$(cd "$(dirname "$0")" && pwd)"
-# shellcheck source=stack-paths.sh
-source "${GUARD_HOME}/../lib/stack-paths.sh"
+# shellcheck source=jellyfin-drive-lib.sh
+source "${GUARD_HOME}/jellyfin-drive-lib.sh"
 
 export SCRIPTS_ROOT
 LOG="${GUARD_LOG:-${HOME}/arr/jellyfin-drive-guard/drive-guard.log}"
 STATE="${GUARD_STATE:-${HOME}/arr/jellyfin-drive-guard/drive-guard.state}"
-RECOVER_STAMP="${GUARD_HOME}/drive-guard.recover-stamp"
+HEAL_STAMP="${GUARD_STATE%.state}/heal.stamp"
 UUID_DEV="/dev/disk/by-uuid/${JELLYFIN_UUID}"
-DOWNLOADERS=(qbittorrent sonarr radarr jellyfin)
-RECOVER_MIN_INTERVAL="${DRIVE_GUARD_RECOVER_INTERVAL_SEC:-300}"
-MOUNT_UNIT="mnt-jellyfin.mount"
+HEAL_MIN_INTERVAL="${DRIVE_GUARD_HEAL_INTERVAL_SEC:-30}"
+GUARD_POLL_SEC="${DRIVE_GUARD_POLL_SEC:-5}"
 
 log() {
-  local line
-  line="$(date -Iseconds) [jellyfin-drive-guard] $*"
   mkdir -p "$(dirname "$LOG")"
-  echo "$line" >>"$LOG"
+  echo "$(date -Iseconds) [jellyfin-drive-guard] $*" >>"$LOG"
 }
 
-read_state() {
-  [[ -f "$STATE" ]] && cat "$STATE" || echo "healthy"
-}
+read_state() { [[ -f "$STATE" ]] && cat "$STATE" || echo "healthy"; }
+write_state() { mkdir -p "$(dirname "$STATE")"; echo "$1" >"$STATE"; }
 
-write_state() {
-  mkdir -p "$(dirname "$STATE")"
-  echo "$1" >"$STATE"
-}
+ssd_present() { [[ -e "$UUID_DEV" ]]; }
 
-ssd_block_device_present() {
-  [[ -e "$UUID_DEV" ]]
-}
-
-try_mount_ssd() {
-  if mountpoint -q "$JELLYFIN_MNT" 2>/dev/null; then
-    return 0
-  fi
-  if ! ssd_block_device_present; then
-    return 1
-  fi
-  mkdir -p "$JELLYFIN_MNT"
-  if sudo -n mount "UUID=${JELLYFIN_UUID}" "$JELLYFIN_MNT" 2>/dev/null; then
-    log "mounted UUID=${JELLYFIN_UUID} at ${JELLYFIN_MNT}"
-    return 0
-  fi
-  # fstab / polkit: allow passwordless or let admin configure sudoers for mount
-  if sudo mount "UUID=${JELLYFIN_UUID}" "$JELLYFIN_MNT" 2>/dev/null; then
-    log "mounted UUID=${JELLYFIN_UUID} at ${JELLYFIN_MNT}"
-    return 0
-  fi
+heal_rate_limited() {
+  local now last=0
+  now=$(date +%s)
+  [[ -f "$HEAL_STAMP" ]] && last=$(cat "$HEAL_STAMP" 2>/dev/null || echo 0)
+  (( now - last < HEAL_MIN_INTERVAL )) && return 0
+  echo "$now" >"$HEAL_STAMP"
   return 1
 }
 
-remount_if_stale() {
-  if ! mountpoint -q "$JELLYFIN_MNT" 2>/dev/null; then
-    return 1
-  fi
-  if "${GUARD_HOME}/ensure-jellyfin-media-mount.sh" >/dev/null 2>&1; then
-    return 0
-  fi
-  log "stale mount at ${JELLYFIN_MNT} — lazy unmount and remount when disk is present"
-  sudo umount -l "$JELLYFIN_MNT" 2>/dev/null || true
-  try_mount_ssd || return 1
-  "${GUARD_HOME}/ensure-jellyfin-media-mount.sh" >/dev/null 2>&1
-}
-
-stop_stack() {
-  local c
-  for c in "${DOWNLOADERS[@]}"; do
-    if docker ps -q -f "name=^${c}$" 2>/dev/null | grep -q .; then
-      docker stop "$c" >/dev/null 2>&1 || true
-      log "stopped container $c"
-    fi
-  done
-}
-
-start_stack() {
-  local c
-  for c in "${DOWNLOADERS[@]}"; do
-    if ! docker ps -q -f "name=^${c}$" 2>/dev/null | grep -q .; then
-      docker start "$c" >/dev/null 2>&1 || true
-      log "started container $c"
-    fi
-  done
-}
-
-qbit_pause_all() {
-  command -v python3 >/dev/null 2>&1 || return 0
-  [[ -r "${LIB_DIR}/arr_common.py" ]] || return 0
-  python3 <<PY || true
-import os, sys, urllib.parse
-sys.path.insert(0, os.environ.get("SCRIPTS_ROOT", "/mnt/jellyfin/scripts") + "/lib")
-from arr_common import qbit_json
-body = urllib.parse.urlencode({"hashes": "all"}).encode()
-qbit_json("/api/v2/torrents/pause", method="POST", data=body)
-PY
-}
-
-maybe_recover_mount() {
-  local now last=0
-  now=$(date +%s)
-  [[ -f "$RECOVER_STAMP" ]] && last=$(cat "$RECOVER_STAMP" 2>/dev/null || echo 0)
-  (( now - last < RECOVER_MIN_INTERVAL )) && return 0
-  echo "$now" >"$RECOVER_STAMP"
+restore_stack() {
   if [[ -x "${HOST_DIR}/recover-jellyfin-drive.sh" ]]; then
     log "running ${HOST_DIR}/recover-jellyfin-drive.sh"
-    RECOVER_SKIP_JELLYFIN=0 "${HOST_DIR}/recover-jellyfin-drive.sh" >>"$LOG" 2>&1 || \
-      log "recover-jellyfin-drive failed"
-  else
-    start_stack
-    sleep 5
-    qbit_pause_all >/dev/null 2>&1 || true
+    if RECOVER_SKIP_JELLYFIN=0 "${HOST_DIR}/recover-jellyfin-drive.sh" >>"$LOG" 2>&1; then
+      return 0
+    fi
+    log "recover-jellyfin-drive failed — docker start (guard set)"
   fi
+  jellyfin_start_guard_stack
 }
 
-# --- main (always exit 0 so systemd does not spam failures while SSD is unplugged) ---
-
-prev=$(read_state)
-poll_state="waiting"
-
-if ssd_block_device_present; then
-  try_mount_ssd || true
-  remount_if_stale || true
-fi
-
-if "${GUARD_HOME}/ensure-jellyfin-media-mount.sh" >/dev/null 2>&1; then
-  poll_state="healthy"
+restore_if_needed() {
+  local prev="$1"
   if [[ "$prev" != "healthy" ]]; then
     log "SSD ready — restoring media stack"
-    maybe_recover_mount
+    restore_stack
+    return
   fi
+  jellyfin_download_stack_down || return 0
+  heal_rate_limited && return 0
+  log "mount healthy but download stack down — healing"
+  restore_stack
+}
+
+prev=$(read_state)
+
+if ssd_present; then
+  jellyfin_mount_ssd 2>/dev/null || true
+  if mountpoint -q "$JELLYFIN_MNT" 2>/dev/null \
+    && ! "$JELLYFIN_ENSURE_MOUNT" >/dev/null 2>&1; then
+    log "stale mount at ${JELLYFIN_MNT} — remount"
+    jellyfin_remount_ssd >>"$LOG" 2>&1 || true
+  fi
+fi
+
+if "$JELLYFIN_ENSURE_MOUNT" >/dev/null 2>&1; then
+  restore_if_needed "$prev"
   write_state healthy
   exit 0
 fi
 
-poll_state="waiting"
 if [[ "$prev" == "healthy" ]]; then
-  log "SSD not ready — waiting for UUID=${JELLYFIN_UUID} (poll every 5s)"
+  log "SSD not ready — waiting for UUID=${JELLYFIN_UUID} (poll every ${GUARD_POLL_SEC}s)"
 fi
-
-if docker ps -q -f name=^qbittorrent$ 2>/dev/null | grep -q .; then
-  qbit_pause_all >/dev/null 2>&1 || true
-fi
-stop_stack
+jellyfin_qbit_pause_all
+for c in "${JELLYFIN_GUARD_CONTAINERS[@]}"; do
+  if docker ps -q -f "name=^${c}$" 2>/dev/null | grep -q .; then
+    docker stop "$c" >/dev/null 2>&1 || true
+    log "stopped container $c"
+  fi
+done
 write_state waiting
 exit 0

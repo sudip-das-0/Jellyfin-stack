@@ -74,6 +74,7 @@ host_layout() {
     fi
   fi
   install -m 755 "$HOST_DIR/jellyfin-cli.sh" "$USER_HOME/.local/bin/jellyfin"
+  install -m 755 "$HOST_DIR/jf.sh" "$USER_HOME/.local/bin/jf"
   grep -q '.local/bin' "$USER_HOME/.bashrc" 2>/dev/null \
     || echo 'export PATH="$HOME/.local/bin:$PATH"' >>"$USER_HOME/.bashrc"
 }
@@ -102,6 +103,9 @@ install_units() {
   fi
   if [[ -f "$HOST_DIR/install-jellyfin-udev-guard.sh" ]]; then
     need_sudo "$HOST_DIR/install-jellyfin-udev-guard.sh" || true
+  fi
+  if [[ -f "$HOST_DIR/install-jellyfin-mount-sudo.sh" ]]; then
+    need_sudo "$HOST_DIR/install-jellyfin-mount-sudo.sh" || true
   fi
 }
 

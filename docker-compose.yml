@@ -104,8 +104,8 @@ services:
       - sonarr
 
   jellyseerr:
-    # Seerr v3+ sends Jellyfin 12–compatible Authorization headers (Jellyfin 12.1 breaks 2.7.x)
-    image: seerr/seerr:v3.5.0
+    # Seerr v3+ — Jellyfin 12–compatible auth (stay on v3.x, not legacy Jellyseerr 2.7)
+    image: seerr/seerr:v3.5.2
     container_name: jellyseerr
     environment:
       TZ: Asia/Kolkata
